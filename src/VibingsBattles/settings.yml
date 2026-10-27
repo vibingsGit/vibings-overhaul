@@ -2,7 +2,7 @@ id: VibingsBattles
 name: Vibings Battles
 description: Elo-ranked head-to-head battles for your Stash items.
 url: https://github.com/vibingsGit/vibings-overhaul
-version: 2.0.0
+version: 2.1.0
 ui:
   javascript: ./src/index.jsx
 include:

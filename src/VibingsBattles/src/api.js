@@ -3,6 +3,7 @@
 import { pickPair, rememberPair, emptyMemory } from "./pairing.js";
 
 export const LOG = "[Vibings Battles]";
+export const VERSION = "2.1.0"; // must match settings.yml (checked by tests)
 const PLUGIN_ID = "VibingsBattles";
 
 export async function graphql(query, variables = {}) {
@@ -31,6 +32,16 @@ export async function backend(operation, args = {}) {
 // ===========================================================================
 
 const basename = (path) => (path ? String(path).split(/[/\\]/).pop() : "");
+
+// Fallback media sources for items whose own image is Stash's placeholder.
+const SCENES_OF = (key) => ({
+  find: "findScenes", listKey: "scenes", filterArg: "scene_filter", filterType: "SceneFilterType", key,
+  fields: "paths { screenshot preview }", image: (it) => it.paths?.screenshot, video: (it) => it.paths?.preview,
+});
+const IMAGES_OF = (key) => ({
+  find: "findImages", listKey: "images", filterArg: "image_filter", filterType: "ImageFilterType", key,
+  fields: "paths { thumbnail }", image: (it) => it.paths?.thumbnail,
+});
 const performerList = (it) => it.performers?.map((p) => p.name).join(", ");
 
 export const CATEGORIES = [
@@ -78,6 +89,7 @@ export const CATEGORIES = [
     image: (it) => it.image_path,
     href: (id) => `/performers/${id}`,
     portrait: true,
+    fallback: [SCENES_OF("performers"), IMAGES_OF("performers")],
   },
   {
     id: "studios",
@@ -92,6 +104,7 @@ export const CATEGORIES = [
     image: (it) => it.image_path,
     href: (id) => `/studios/${id}`,
     contain: true,
+    fallback: [SCENES_OF("studios"), IMAGES_OF("studios")],
   },
   {
     id: "groups",
@@ -106,6 +119,7 @@ export const CATEGORIES = [
     image: (it) => it.front_image_path,
     href: (id) => `/groups/${id}`,
     portrait: true,
+    fallback: [SCENES_OF("groups")],
   },
   {
     id: "galleries",
@@ -119,6 +133,7 @@ export const CATEGORIES = [
     subtitle: (it) => [it.studio?.name, `${it.image_count} images`, it.date].filter(Boolean).join(" · "),
     image: (it) => it.paths?.cover,
     href: (id) => `/galleries/${id}`,
+    fallback: [IMAGES_OF("galleries")],
   },
 ];
 export const CATEGORY_BY_ID = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
@@ -127,6 +142,50 @@ export async function fetchCounts() {
   const parts = CATEGORIES.map((c) => `${c.id}: ${c.find}(filter: { per_page: 0 }) { count }`);
   const data = await graphql(`query VibingsBattlesCounts { ${parts.join(" ")} }`);
   return Object.fromEntries(CATEGORIES.map((c) => [c.id, data[c.id].count]));
+}
+
+// ===========================================================================
+// Media
+// ===========================================================================
+
+// Stash serves a generated placeholder (marked default=true) when an item has no image.
+export const isPlaceholder = (url) => !url || /[?&]default=true/.test(url);
+
+// Stable per-item seed so the same fallback picture is shown every time.
+const seedFor = (id) => {
+  let h = 7;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) % 99991;
+  return h;
+};
+
+const fallbackCache = new Map(); // "cat:id" -> Promise<{ image, video } | null>
+
+/**
+ * A picture (and preview video, for scenes) from the item's own library,
+ * used when its image is a placeholder: a performer's or studio's scenes,
+ * a group's scenes, a gallery's images.
+ */
+export function fetchFallbackMedia(cat, id) {
+  if (!cat.fallback) return Promise.resolve(null);
+  const cacheKey = `${cat.id}:${id}`;
+  if (!fallbackCache.has(cacheKey)) {
+    fallbackCache.set(cacheKey, (async () => {
+      for (const src of cat.fallback) {
+        try {
+          const data = await graphql(
+            `query VibingsBattlesFallback($f: FindFilterType, $c: ${src.filterType}) { ${src.find}(filter: $f, ${src.filterArg}: $c) { ${src.listKey} { ${src.fields} } } }`,
+            { f: { per_page: 1, sort: `random_${seedFor(id)}` }, c: { [src.key]: { value: [String(id)], modifier: "INCLUDES" } } }
+          );
+          const hit = data[src.find][src.listKey][0];
+          if (hit) return { image: src.image(hit), video: src.video?.(hit) };
+        } catch (e) {
+          console.warn(LOG, "fallback media failed", cat.id, id, e);
+        }
+      }
+      return null;
+    })());
+  }
+  return fallbackCache.get(cacheKey);
 }
 
 // ===========================================================================
@@ -245,4 +304,86 @@ async function syncChunk(rows) {
     vars[`i${i}`] = { id: String(c.id), rating100: c.rating100 ?? null };
   });
   await graphql(`mutation VibingsBattlesSync(${defs.join(", ")}) { ${fields.join(" ")} }`, vars);
+}
+
+// ===========================================================================
+// Status checks
+// ===========================================================================
+
+const STATE_ORDER = { ok: 0, info: 0, warn: 1, error: 2 };
+export const worstState = (checks) =>
+  checks.reduce((w, c) => (STATE_ORDER[c.state] > STATE_ORDER[w] ? c.state : w), "ok");
+
+/**
+ * Health of each part of the plugin. Returns
+ * [{ id, label, state: "ok" | "info" | "warn" | "error", detail }].
+ */
+export async function runStatusChecks(settings) {
+  const checks = [{ id: "ui", label: "UI", state: "ok", detail: `v${VERSION}` }];
+
+  let ping = null;
+  const t0 = performance.now();
+  try {
+    ping = await backend("ping");
+    const ms = Math.round(performance.now() - t0);
+    const mismatch = ping.version !== VERSION;
+    checks.push({
+      id: "backend",
+      label: "Backend (Python)",
+      state: mismatch ? "warn" : "ok",
+      detail: mismatch
+        ? `Backend v${ping.version || "?"} but UI v${VERSION}. Reload the page; if it persists, reinstall the plugin.`
+        : `v${ping.version} · Python ${ping.python} · ${ms} ms`,
+    });
+  } catch (e) {
+    checks.push({ id: "backend", label: "Backend (Python)", state: "error", detail: e.message });
+  }
+
+  if (ping) {
+    const kb = (ping.dataBytes / 1024).toFixed(1);
+    checks.push({
+      id: "data",
+      label: "Battle data",
+      state: ping.corruptBackups ? "warn" : "ok",
+      detail: `${ping.battles} battles · ${kb} KB · format v${ping.dataVersion}` +
+        (ping.corruptBackups ? ` · ${ping.corruptBackups} unreadable data file(s) set aside next to the plugin` : ""),
+    });
+  }
+
+  try {
+    const data = await graphql(`query VibingsBattlesStatus { version { version } plugins { id version enabled } }`);
+    const plugin = data.plugins.find((p) => p.id === "VibingsBattles");
+    checks.push({ id: "stash", label: "Stash", state: "ok", detail: `${data.version.version} · GraphQL reachable` });
+    checks.push(
+      !plugin
+        ? { id: "plugin", label: "Plugin registration", state: "error", detail: "Stash does not list VibingsBattles." }
+        : plugin.version !== VERSION
+          ? { id: "plugin", label: "Plugin registration", state: "warn", detail: `Stash lists v${plugin.version}, UI is v${VERSION} (development build or pending update).` }
+          : { id: "plugin", label: "Plugin registration", state: "ok", detail: `v${plugin.version} · ${plugin.enabled ? "enabled" : "disabled"}` }
+    );
+  } catch (e) {
+    checks.push({ id: "stash", label: "Stash", state: "error", detail: e.message });
+  }
+
+  try {
+    const counts = await fetchCounts();
+    const usable = CATEGORIES.filter((c) => counts[c.id] >= 2);
+    const unusable = CATEGORIES.filter((c) => counts[c.id] < 2).map((c) => c.label);
+    checks.push({
+      id: "library",
+      label: "Library",
+      state: usable.length ? "ok" : "error",
+      detail: `${usable.length}/${CATEGORIES.length} categories can battle` + (unusable.length ? ` (too few items: ${unusable.join(", ")})` : ""),
+    });
+  } catch (e) {
+    checks.push({ id: "library", label: "Library", state: "error", detail: e.message });
+  }
+
+  if (settings) {
+    const sync = settings.ui?.syncRatings !== false;
+    const pb = settings.performerBonus;
+    checks.push({ id: "sync", label: "Rating sync", state: "info", detail: sync ? "On — ratings are written to Stash" : "Off — Stash ratings are not touched" });
+    checks.push({ id: "bonus", label: "Performer bonus", state: "info", detail: pb?.enabled ? `On — winner ${pb.winnerPct}%, loser ${pb.loserPct}%` : "Off" });
+  }
+  return checks;
 }

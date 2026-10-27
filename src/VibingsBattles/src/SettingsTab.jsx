@@ -3,6 +3,7 @@
 
 import { backend, syncRatings, CATEGORIES } from "./api.js";
 import { ConfirmModal } from "./ui.jsx";
+import { StatusPanel } from "./StatusPanel.jsx";
 
 const PluginApi = window.PluginApi;
 const React = PluginApi.React;
@@ -91,6 +92,8 @@ export function SettingsTab({ active, settings, saveSettings, syncEnabled, notif
 
   return (
     <div className="vb-form">
+      <StatusPanel settings={settings} />
+
       <fieldset>
         <legend>Scoring (Elo)</legend>
         <NumberField label="Starting rating" help="Elo of an item before its first battle." value={draft.elo.initial} min={100} max={5000} onChange={set("elo", "initial")} />

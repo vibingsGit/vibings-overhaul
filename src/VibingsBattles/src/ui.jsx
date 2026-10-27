@@ -1,6 +1,6 @@
 // Small shared components and formatters.
 
-import { CATEGORIES } from "./api.js";
+import { fetchFallbackMedia, isPlaceholder } from "./api.js";
 
 const PluginApi = window.PluginApi;
 const React = PluginApi.React;
@@ -8,6 +8,29 @@ const { Button, Modal } = PluginApi.libraries.Bootstrap;
 
 export function Icon({ icon, className }) {
   return <PluginApi.components.Icon icon={icon} className={className} />;
+}
+
+/**
+ * { image, video } for an item: its own media, or — when Stash only has a
+ * placeholder — a picture from the item's library (scenes, images).
+ * `thumb` prefers the category's small thumbnail.
+ */
+export function useItemMedia(cat, item, { thumb = false } = {}) {
+  const own = item ? ((thumb && cat.thumb) || cat.image)(item) : null;
+  const ownVideo = item ? cat.video?.(item) : null;
+  const needsFallback = !!item && !!cat.fallback && isPlaceholder(own);
+  const [fallback, setFallback] = React.useState(null);
+
+  React.useEffect(() => {
+    setFallback(null);
+    if (!needsFallback) return undefined;
+    let cancelled = false;
+    fetchFallbackMedia(cat, item.id).then((m) => !cancelled && setFallback(m));
+    return () => { cancelled = true; };
+  }, [cat.id, item?.id, needsFallback]);
+
+  if (needsFallback && fallback) return { image: fallback.image, video: fallback.video, fallback: true };
+  return { image: own, video: ownVideo, fallback: false };
 }
 
 export function formatDelta(d) {
@@ -46,28 +69,6 @@ export function describeEntry(e, itemId) {
   if (itemId == null) return { text: `${winner} beat ${loser}`, outcome: "" };
   const won = (e.result === "a" && e.a === itemId) || (e.result === "b" && e.b === itemId);
   return { text: `vs ${e.a === itemId ? bName : aName}`, outcome: won ? "Won" : "Lost" };
-}
-
-export function CategoryPills({ value, counts, onChange, ranked }) {
-  return (
-    <div className="vb-cats">
-      {CATEGORIES.map((c) => {
-        const count = ranked ? ranked[c.id] : counts?.[c.id];
-        return (
-          <button
-            key={c.id}
-            type="button"
-            className={`vb-cat${c.id === value ? " active" : ""}`}
-            disabled={!ranked && counts?.[c.id] != null && counts[c.id] < 2}
-            onClick={() => onChange(c.id)}
-          >
-            {c.label}
-            {count != null && <span className="vb-count">{count}</span>}
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 export function ConfirmModal({ show, title, children, confirmLabel = "Confirm", variant = "danger", busy, onConfirm, onCancel }) {

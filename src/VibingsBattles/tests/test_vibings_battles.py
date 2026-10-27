@@ -302,7 +302,21 @@ class TestValidationAndStorage(BackendTestCase):
         env = {**os.environ, "VIBINGS_BATTLES_DATA_DIR": self.tmp.name}
         proc = subprocess.run([sys.executable, BACKEND], input='{"args":{"operation":"ping"}}',
                               text=True, capture_output=True, env=env, check=True)
-        self.assertEqual(json.loads(proc.stdout), {"output": {"ok": True, "dataVersion": 4, "battles": 0}})
+        out = json.loads(proc.stdout)["output"]
+        self.assertEqual({k: out[k] for k in ("ok", "dataVersion", "battles", "dataBytes", "corruptBackups")},
+                         {"ok": True, "dataVersion": 4, "battles": 0, "dataBytes": 0, "corruptBackups": 0})
+        self.assertEqual(out["version"], self.vb.VERSION)
+
+    def test_ping_reports_set_aside_files(self):
+        with open(os.path.join(self.tmp.name, "vibings-battles-data.json"), "w") as f:
+            f.write("{broken")
+        self.call("ping")  # moves the broken file aside
+        self.assertEqual(self.call("ping")["corruptBackups"], 1)
+
+    def test_version_matches_settings_yml(self):
+        with open(os.path.join(HERE, "..", "settings.yml")) as f:
+            version = next(line.split(":", 1)[1].strip() for line in f if line.startswith("version:"))
+        self.assertEqual(self.vb.VERSION, version)
 
 
 if __name__ == "__main__":

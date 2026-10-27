@@ -1,7 +1,7 @@
 // Leaderboard tab: ranked items per category, with an item detail modal.
 
 import { backend, fetchItemsSafe, CATEGORY_BY_ID } from "./api.js";
-import { Icon, CategoryPills, StatCard, describeEntry, formatDelta, formatStreak, timeAgo, winRate } from "./ui.jsx";
+import { Icon, StatCard, describeEntry, formatDelta, formatStreak, timeAgo, winRate, useItemMedia } from "./ui.jsx";
 
 const PluginApi = window.PluginApi;
 const React = PluginApi.React;
@@ -18,8 +18,23 @@ const SORTS = {
 };
 
 function Thumb({ cat, item }) {
-  const src = item ? (cat.thumb || cat.image)(item) : null;
-  return src ? <img className={`vb-thumb${cat.contain ? " contain" : ""}`} src={src} alt="" loading="lazy" /> : <div className="vb-thumb" />;
+  const { image, fallback } = useItemMedia(cat, item, { thumb: true });
+  return image
+    ? <img className={`vb-thumb${cat.contain && !fallback ? " contain" : ""}`} src={image} alt="" loading="lazy" />
+    : <div className="vb-thumb" />;
+}
+
+function ModalImage({ cat, item }) {
+  const { image, fallback } = useItemMedia(cat, item);
+  if (!image) return null;
+  return (
+    <img
+      src={image}
+      alt=""
+      className="vb-modal-img"
+      style={{ objectFit: cat.contain && !fallback ? "contain" : "cover" }}
+    />
+  );
 }
 
 function ItemModal({ cat, itemId, stashItem, onClose }) {
@@ -45,14 +60,8 @@ function ItemModal({ cat, itemId, stashItem, onClose }) {
         {!item && !error && <p className="vb-muted">Loading…</p>}
         {item && (
           <>
-            <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginBottom: 16 }}>
-              {stashItem && (
-                <img
-                  src={cat.image(stashItem)}
-                  alt=""
-                  style={{ width: 160, maxHeight: 220, objectFit: cat.contain ? "contain" : "cover", borderRadius: 8 }}
-                />
-              )}
+            <div className="vb-modal-top">
+              {stashItem && <ModalImage cat={cat} item={stashItem} />}
               <div className="vb-cards" style={{ flex: 1, marginBottom: 0 }}>
                 <StatCard label="Elo" value={Math.round(item.rating)} note={item.bonus ? `${formatDelta(item.bonus)} from performer bonus` : null} />
                 <StatCard label="Stash rating" value={item.rating100 ?? "–"} />
@@ -98,9 +107,7 @@ function ItemModal({ cat, itemId, stashItem, onClose }) {
   );
 }
 
-export function LeaderboardTab({ active, refreshKey, notifyError }) {
-  const [catId, setCatId] = React.useState(null);
-  const [ranked, setRanked] = React.useState(null); // category -> ranked item count
+export function LeaderboardTab({ active, catId, refreshKey, notifyError }) {
   const [items, setItems] = React.useState(null);
   const [query, setQuery] = React.useState("");
   const [minBattles, setMinBattles] = React.useState(0);
@@ -109,21 +116,11 @@ export function LeaderboardTab({ active, refreshKey, notifyError }) {
   const [stashItems, setStashItems] = React.useState(new Map());
   const [selected, setSelected] = React.useState(null);
 
-  // Ranked counts per category; also picks the busiest category by default.
-  React.useEffect(() => {
-    if (!active) return;
-    backend("summary", { tzOffset: new Date().getTimezoneOffset() })
-      .then((s) => {
-        const counts = Object.fromEntries(Object.entries(s.categories).map(([k, v]) => [k, v.items]));
-        setRanked(counts);
-        setCatId((cur) => cur || Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "scenes");
-      })
-      .catch((e) => notifyError("Could not load summary", e));
-  }, [active, refreshKey]);
-
   React.useEffect(() => {
     if (!active || !catId) return;
     let cancelled = false;
+    setItems(null);
+    setStashItems(new Map());
     backend("get_items", { category: catId })
       .then((list) => !cancelled && setItems(list || []))
       .catch((e) => notifyError("Could not load leaderboard", e));
@@ -158,10 +155,11 @@ export function LeaderboardTab({ active, refreshKey, notifyError }) {
   }, [catId, pageKey]);
 
   if (!active) return null;
+  if (!cat) return <div className="vb-status vb-muted">Choose a category.</div>;
 
   return (
     <div>
-      <CategoryPills value={catId} ranked={ranked || {}} onChange={(id) => { setItems(null); setStashItems(new Map()); setCatId(id); }} />
+      <div className="vb-main-head"><h2>{cat.label} leaderboard</h2></div>
       <div className="vb-toolbar">
         <Form.Control placeholder="Search by name" value={query} onChange={(e) => setQuery(e.target.value)} style={{ minWidth: 220 }} />
         <Form.Control as="select" value={sort} onChange={(e) => setSort(e.target.value)}>
@@ -185,10 +183,10 @@ export function LeaderboardTab({ active, refreshKey, notifyError }) {
                 <th>Name</th>
                 <th className="vb-num">Elo</th>
                 <th className="vb-num">Rating</th>
-                <th className="vb-num">W-L-D</th>
-                <th className="vb-num">Win %</th>
-                <th className="vb-num">Streak</th>
-                <th>Last battle</th>
+                <th className="vb-num vb-hide-sm">W-L-D</th>
+                <th className="vb-num vb-hide-sm">Win %</th>
+                <th className="vb-num vb-hide-sm">Streak</th>
+                <th className="vb-hide-sm">Last battle</th>
               </tr>
             </thead>
             <tbody>
@@ -205,10 +203,10 @@ export function LeaderboardTab({ active, refreshKey, notifyError }) {
                     </td>
                     <td className="vb-num">{Math.round(it.rating)}</td>
                     <td className="vb-num">{it.rating100 ?? "–"}</td>
-                    <td className="vb-num">{it.wins}-{it.losses}-{it.draws}</td>
-                    <td className="vb-num">{winRate(it) ?? "–"}</td>
-                    <td className="vb-num">{formatStreak(it.streak)}</td>
-                    <td className="vb-muted">{timeAgo(it.lastBattled)}</td>
+                    <td className="vb-num vb-hide-sm">{it.wins}-{it.losses}-{it.draws}</td>
+                    <td className="vb-num vb-hide-sm">{winRate(it) ?? "–"}</td>
+                    <td className="vb-num vb-hide-sm">{formatStreak(it.streak)}</td>
+                    <td className="vb-muted vb-hide-sm">{timeAgo(it.lastBattled)}</td>
                   </tr>
                 );
               })}

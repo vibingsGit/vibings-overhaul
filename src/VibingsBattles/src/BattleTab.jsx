@@ -2,7 +2,7 @@
 
 import { backend, fetchSmartPair, CATEGORY_BY_ID } from "./api.js";
 import { emptyMemory } from "./pairing.js";
-import { Icon, CategoryPills, formatDelta, formatStreak } from "./ui.jsx";
+import { Icon, formatDelta, formatStreak, useItemMedia } from "./ui.jsx";
 
 const PluginApi = window.PluginApi;
 const React = PluginApi.React;
@@ -21,17 +21,21 @@ const OUTCOME_CLASS = {
   skip: { a: null, b: null },
 };
 
+// The whole picture is shown (contain); a blurred copy fills the empty
+// space so portrait and landscape media both look intentional.
 function Media({ cat, item }) {
   const [hover, setHover] = React.useState(false);
-  const video = cat.video?.(item);
-  const cls = ["vb-media", cat.contain && "contain", cat.portrait && "portrait"].filter(Boolean).join(" ");
+  const { image, video, fallback } = useItemMedia(cat, item);
+  const cls = ["vb-media", cat.contain && !fallback && "logo"].filter(Boolean).join(" ");
   return (
     <div className={cls} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      {image && <img className="vb-media-bg" src={image} alt="" aria-hidden="true" />}
       {hover && video ? (
-        <video src={video} autoPlay muted loop playsInline />
+        <video className="vb-media-fg" src={video} autoPlay muted loop playsInline />
       ) : (
-        <img src={cat.image(item)} alt="" loading="eager" />
+        image && <img className="vb-media-fg" src={image} alt="" loading="eager" />
       )}
+      {fallback && <span className="vb-badge" title="No image in Stash; showing one from its library">From library</span>}
     </div>
   );
 }
@@ -83,9 +87,8 @@ const ref = (cat, it) => ({
   ...(cat.hasPerformers ? { performers: (it.performers || []).map((p) => ({ id: p.id, name: p.name })) } : {}),
 });
 
-export function BattleTab({ active, settings, counts, sync, notifyError, onBattle }) {
+export function BattleTab({ active, catId, onCategory, settings, sync, notifyError, onBattle }) {
   const toast = PluginApi.hooks.useToast();
-  const [catId, setCatId] = React.useState(null);
   const [stats, setStatsState] = React.useState({}); // item id -> backend stats for the active category
   const [pair, setPair] = React.useState(null);
   const [phase, setPhase] = React.useState("idle"); // idle | loading | ready | busy | result | error
@@ -93,6 +96,7 @@ export function BattleTab({ active, settings, counts, sync, notifyError, onBattl
   const [result, setResult] = React.useState(null); // { result, delta: [a, b] }
   const [session, setSession] = React.useState(0);
   const history = React.useRef([]); // [{ seq, catId, pair }] for undo
+  const restoreRef = React.useRef(null); // pair to show after an undo switches category
   const loadToken = React.useRef(0);
   // Refs read by async pair loading, which must see the latest values.
   const statsRef = React.useRef({});
@@ -142,16 +146,23 @@ export function BattleTab({ active, settings, counts, sync, notifyError, onBattl
     }
   }, []);
 
-  const selectCategory = React.useCallback(async (id) => {
-    setCatId(id);
-    setPair(null);
+  // Category chosen in the side panel (or restored by undo).
+  React.useEffect(() => {
+    if (!catId) return;
+    loadToken.current++; // cancel any pending pair load
+    const restore = restoreRef.current?.catId === catId ? restoreRef.current : null;
+    restoreRef.current = null;
+    setPair(restore ? restore.pair : null);
+    setResult(null);
     setError(null);
     setSession(0);
     memoryRef.current = emptyMemory();
     missingRef.current = new Set();
-    await loadStats(id);
-    loadPair(CATEGORY_BY_ID[id]);
-  }, [loadPair, loadStats]);
+    loadStats(catId).then(() => {
+      if (restore) setPhase("ready");
+      else loadPair(CATEGORY_BY_ID[catId]);
+    });
+  }, [catId]);
 
   // Settings changes (e.g. Elo parameters) change every rating: refresh.
   React.useEffect(() => {
@@ -191,7 +202,11 @@ export function BattleTab({ active, settings, counts, sync, notifyError, onBattl
       toast.success(`Undid battle #${undone.seq}`);
       if (last && last.seq === undone.seq) {
         history.current.pop();
-        if (last.catId !== catId) setCatId(last.catId);
+        if (last.catId !== catId) {
+          restoreRef.current = last; // the category effect shows this pair
+          onCategory(last.catId);
+          return;
+        }
         await loadStats(last.catId);
         loadToken.current++; // cancel any pending pair load
         setPair(last.pair);
@@ -207,7 +222,7 @@ export function BattleTab({ active, settings, counts, sync, notifyError, onBattl
       notifyError("Undo failed", e);
       setPhase(pair ? "ready" : cat ? "error" : "idle");
     }
-  }, [phase, pair, cat, catId, sync, toast, notifyError, loadStats, onBattle]);
+  }, [phase, pair, cat, catId, sync, toast, notifyError, loadStats, onBattle, onCategory]);
 
   // Keyboard shortcuts only while this tab is visible.
   const keyHandlers = React.useRef({});
@@ -229,9 +244,13 @@ export function BattleTab({ active, settings, counts, sync, notifyError, onBattl
   const canDecide = phase === "ready";
 
   return (
-    <div style={active ? undefined : { display: "none" }}>
-      <CategoryPills value={catId} counts={counts} onChange={selectCategory} />
-      {cat && <p className="vb-muted">{session} battles this session</p>}
+    <div className="vb-battle" style={active ? undefined : { display: "none" }}>
+      {cat && (
+        <div className="vb-main-head">
+          <h2>{cat.label}</h2>
+          <span className="vb-muted">{session} battles this session</span>
+        </div>
+      )}
 
       {!cat && <div className="vb-status vb-muted">Choose a category to start.</div>}
       {cat && phase === "error" && (
@@ -260,20 +279,20 @@ export function BattleTab({ active, settings, counts, sync, notifyError, onBattl
             ))}
           </div>
           <div className="vb-actions">
-            <Button variant="secondary" disabled={!canDecide} onClick={() => decide("a")}>
-              <Icon icon={faArrowLeft} /> Left wins <kbd>←</kbd>
+            <Button variant="secondary" disabled={!canDecide} onClick={() => decide("a")} title="Left wins (←)">
+              <Icon icon={faArrowLeft} /> <span className="vb-btn-label">Left wins</span> <kbd>←</kbd>
             </Button>
-            <Button variant="secondary" disabled={!canDecide} onClick={() => decide("draw")}>
-              <Icon icon={faEquals} /> Draw <kbd>↓</kbd>
+            <Button variant="secondary" disabled={!canDecide} onClick={() => decide("draw")} title="Draw (↓)">
+              <Icon icon={faEquals} /> <span className="vb-btn-label">Draw</span> <kbd>↓</kbd>
             </Button>
-            <Button variant="secondary" disabled={!canDecide} onClick={() => decide("skip")}>
-              <Icon icon={faForward} /> Skip <kbd>Space</kbd>
+            <Button variant="secondary" disabled={!canDecide} onClick={() => decide("skip")} title="Skip (Space)">
+              <Icon icon={faForward} /> <span className="vb-btn-label">Skip</span> <kbd>Space</kbd>
             </Button>
-            <Button variant="secondary" disabled={!canDecide} onClick={() => decide("b")}>
-              Right wins <Icon icon={faArrowRight} /> <kbd>→</kbd>
+            <Button variant="secondary" disabled={!canDecide} onClick={() => decide("b")} title="Right wins (→)">
+              <span className="vb-btn-label">Right wins</span> <Icon icon={faArrowRight} /> <kbd>→</kbd>
             </Button>
-            <Button variant="outline-secondary" disabled={phase === "busy"} onClick={undo}>
-              <Icon icon={faRotateLeft} /> Undo <kbd>U</kbd>
+            <Button variant="outline-secondary" disabled={phase === "busy"} onClick={undo} title="Undo (U)">
+              <Icon icon={faRotateLeft} /> <span className="vb-btn-label">Undo</span> <kbd>U</kbd>
             </Button>
           </div>
         </>

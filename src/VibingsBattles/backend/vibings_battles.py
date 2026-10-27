@@ -24,6 +24,7 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+VERSION = "2.1.0"  # plugin version; must match settings.yml (checked by tests)
 DATA_VERSION = 4
 DATA_DIR = os.environ.get("VIBINGS_BATTLES_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(DATA_DIR, "vibings-battles-data.json")
@@ -368,7 +369,20 @@ def local_day(ts, tz_offset_min):
 
 def op_ping(args):
     data = load_data()
-    return {"ok": True, "dataVersion": DATA_VERSION, "battles": len(data["log"])}
+    prefix = os.path.basename(DATA_FILE) + ".corrupt-"
+    try:
+        corrupt = sum(1 for name in os.listdir(DATA_DIR) if name.startswith(prefix))
+    except OSError:
+        corrupt = 0
+    return {
+        "ok": True,
+        "version": VERSION,
+        "dataVersion": DATA_VERSION,
+        "battles": len(data["log"]),
+        "dataBytes": os.path.getsize(DATA_FILE) if os.path.exists(DATA_FILE) else 0,
+        "corruptBackups": corrupt,
+        "python": sys.version.split()[0],
+    }
 
 
 def op_get_settings(args):

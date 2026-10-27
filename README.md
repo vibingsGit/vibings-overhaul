@@ -22,7 +22,11 @@ Head-to-head battles that build an Elo ranking for scenes, images, performers, s
 
 - Pick the better of two items, call a draw or skip the pair; undo the last battle at any time
 - Elo scoring in the backend, mapped to Stash's `rating100` (optional sync)
+- Optional performer bonus: scene and image wins also lift the performers
 - Smart pairing that favours under-battled items and close matches
+- Whole pictures, and items without an image show one from their own library
+- Leaderboard, stats and settings; side panel layout that works on phones
+- Settings and status checks also in Stash's **Settings → Tools → Vibings Overhaul**
 - Battle log stored on the Stash server, shared across devices
 
 ## Repository layout
@@ -30,10 +34,15 @@ Head-to-head battles that build an Elo ranking for scenes, images, performers, s
 | Path | Purpose |
 | --- | --- |
 | `src/<Plugin>/` | Plugin source (stash-plugin-builder projects) |
+| `src/_shared/` | Code bundled into several plugins, e.g. the shared Settings → Tools section |
 | `plugins/<Plugin>/` | Built plugins; pushing changes here publishes them |
 | `build_site.sh` | Builds the plugin source index for GitHub Pages |
 
 Each source folder has its own README with build and test commands.
+
+## Settings
+
+Every plugin adds its settings to one shared section in Stash: **Settings → Tools → Vibings Overhaul**, with a collapsible panel per plugin showing its version.
 
 ## License
 
