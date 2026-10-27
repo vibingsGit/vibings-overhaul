@@ -30,6 +30,7 @@ DATA_FILE = os.path.join(DATA_DIR, "vibings-battles-data.json")
 LOCK_FILE = DATA_FILE + ".lock"
 
 CATEGORIES = ("scenes", "images", "performers", "studios", "groups", "galleries")
+BONUS_CATEGORIES = ("scenes", "images")  # items that have performers
 RESULTS = ("a", "b", "draw", "skip")
 MAX_RECENT_LOG = 500
 
@@ -45,6 +46,13 @@ DEFAULT_SETTINGS = {
     "ratingMap": {
         "mode": "linear",
         "scale": 8,
+    },
+    # In scene and image battles, performers of the winning (and optionally
+    # losing) item get this percentage of that item's Elo change.
+    "performerBonus": {
+        "enabled": True,
+        "winnerPct": 25,
+        "loserPct": 0,
     },
     # Free-form UI settings; the backend stores them as-is.
     "ui": {},
@@ -158,6 +166,13 @@ def merge_settings(raw):
         s["ratingMap"]["mode"] = rm["mode"]
     s["ratingMap"]["scale"] = _num(rm.get("scale"), 1, 100, DEFAULT_SETTINGS["ratingMap"]["scale"])
 
+    pb = raw.get("performerBonus") if isinstance(raw.get("performerBonus"), dict) else {}
+    dpb = DEFAULT_SETTINGS["performerBonus"]
+    if isinstance(pb.get("enabled"), bool):
+        s["performerBonus"]["enabled"] = pb["enabled"]
+    s["performerBonus"]["winnerPct"] = _num(pb.get("winnerPct"), 0, 100, dpb["winnerPct"])
+    s["performerBonus"]["loserPct"] = _num(pb.get("loserPct"), 0, 100, dpb["loserPct"])
+
     if isinstance(raw.get("ui"), dict):
         s["ui"] = raw["ui"]
     return s
@@ -179,6 +194,7 @@ def new_item(item_id, initial):
         "worstStreak": 0,
         "firstBattled": None,
         "lastBattled": None,
+        "bonus": 0.0,  # Elo received through the performer bonus
     }
 
 
@@ -190,8 +206,32 @@ def k_for(item, elo):
     return elo["provisionalK"] if item["battles"] < elo["provisionalBattles"] else elo["k"]
 
 
-def apply_entry(items, entry, elo):
+def is_ranked(item):
+    return item["battles"] > 0 or item.get("bonus", 0) != 0
+
+
+def apply_performer_bonus(items, entry, deltas, settings):
+    pb = settings["performerBonus"]
+    perf = entry.get("perf")
+    if not pb["enabled"] or not perf or entry["result"] not in ("a", "b"):
+        return
+    initial = settings["elo"]["initial"]
+    win, lose = ("a", "b") if entry["result"] == "a" else ("b", "a")
+    delta = {"a": deltas[0], "b": deltas[1]}
+    performers = items.setdefault("performers", {})
+    for side, pct in ((win, pb["winnerPct"]), (lose, pb["loserPct"])):
+        amount = delta[side] * pct / 100.0
+        if not amount:
+            continue
+        for pid in perf.get(side) or []:
+            p = performers.get(pid) or performers.setdefault(pid, new_item(pid, initial))
+            p["rating"] += amount
+            p["bonus"] += amount
+
+
+def apply_entry(items, entry, settings):
     """Apply one log entry to the item map (mutates). Returns (a, b, deltas)."""
+    elo = settings["elo"]
     cat = items.setdefault(entry["category"], {})
     a = cat.get(entry["a"]) or cat.setdefault(entry["a"], new_item(entry["a"], elo["initial"]))
     b = cat.get(entry["b"]) or cat.setdefault(entry["b"], new_item(entry["b"], elo["initial"]))
@@ -225,25 +265,25 @@ def apply_entry(items, entry, elo):
             item["streak"] = 0
         item["bestStreak"] = max(item["bestStreak"], item["streak"])
         item["worstStreak"] = max(item["worstStreak"], -item["streak"])
+    apply_performer_bonus(items, entry, (da, db), settings)
     return a, b, (da, db)
 
 
 def replay(data):
     """Derive all item states from the log."""
-    elo = data["settings"]["elo"]
     items = {}
     for entry in data["log"]:
-        apply_entry(items, entry, elo)
+        apply_entry(items, entry, data["settings"])
     return items
 
 
 def rating100_map(items, settings):
-    """Return {category: {id: rating100}} for every item with >= 1 decided battle."""
+    """Return {category: {id: rating100}} for every ranked item (battled or bonus)."""
     rm = settings["ratingMap"]
     initial = settings["elo"]["initial"]
     out = {}
     for cat, cat_items in items.items():
-        rated = [it for it in cat_items.values() if it["battles"] > 0]
+        rated = [it for it in cat_items.values() if is_ranked(it)]
         res = {}
         if rm["mode"] == "percentile":
             rated.sort(key=lambda it: it["rating"])
@@ -277,6 +317,7 @@ def diff_rating100(before, after):
 def public_item(item, names, r100):
     out = dict(item)
     out["rating"] = round(item["rating"], 1)
+    out["bonus"] = round(item.get("bonus", 0.0), 1)
     out["name"] = names.get(item["id"], "")
     out["rating100"] = r100.get(item["id"])
     return out
@@ -308,6 +349,15 @@ def parse_ref(raw, key):
     return str(raw["id"]), str(raw.get("name") or "")
 
 
+def parse_performers(raw):
+    """[{id, name}] -> list of (id, name); ignores malformed entries."""
+    out = []
+    for p in (raw or {}).get("performers") or []:
+        if isinstance(p, dict) and p.get("id") not in (None, ""):
+            out.append((str(p["id"]), str(p.get("name") or "")))
+    return out
+
+
 def local_day(ts, tz_offset_min):
     # tz_offset_min follows JS Date.getTimezoneOffset(): UTC - local, in minutes.
     dt = datetime.fromisoformat(ts) - timedelta(minutes=tz_offset_min)
@@ -334,7 +384,7 @@ def op_save_settings(args):
         before = rating100_map(replay(data), data["settings"])
         combined = copy.deepcopy(data["settings"])
         for key, value in incoming.items():
-            if key in ("elo", "ratingMap") and isinstance(value, dict):
+            if key in ("elo", "ratingMap", "performerBonus") and isinstance(value, dict):
                 combined[key] = {**combined.get(key, {}), **value}
             else:
                 combined[key] = value
@@ -347,8 +397,11 @@ def op_save_settings(args):
 
 def op_record(args):
     cat = require_category(args)
-    a_id, a_name = parse_ref(arg_json(args, "a"), "a")
-    b_id, b_name = parse_ref(arg_json(args, "b"), "b")
+    a_raw, b_raw = arg_json(args, "a"), arg_json(args, "b")
+    a_id, a_name = parse_ref(a_raw, "a")
+    b_id, b_name = parse_ref(b_raw, "b")
+    a_perf = parse_performers(a_raw) if cat in BONUS_CATEGORIES else []
+    b_perf = parse_performers(b_raw) if cat in BONUS_CATEGORIES else []
     result = args.get("result")
     if result not in RESULTS:
         raise OpError(f"result must be one of {RESULTS}")
@@ -368,7 +421,9 @@ def op_record(args):
             "b": b_id,
             "result": result,
         }
-        a, b, (da, db) = apply_entry(items, entry, data["settings"]["elo"])
+        if a_perf or b_perf:
+            entry["perf"] = {"a": [pid for pid, _ in a_perf], "b": [pid for pid, _ in b_perf]}
+        a, b, (da, db) = apply_entry(items, entry, data["settings"])
         entry["delta"] = [round(da, 2), round(db, 2)]
         data["log"].append(entry)
         data["nextSeq"] += 1
@@ -378,6 +433,10 @@ def op_record(args):
             names[a_id] = a_name
         if b_name:
             names[b_id] = b_name
+        perf_names = data["names"].setdefault("performers", {}) if (a_perf or b_perf) else {}
+        for pid, pname in a_perf + b_perf:
+            if pname:
+                perf_names[pid] = pname
 
         after = rating100_map(items, data["settings"])
         save_data(data)
@@ -424,7 +483,9 @@ def op_get_item(args):
         return None
     r100 = rating100_map(items, data["settings"]).get(cat, {})
     out = public_item(item, data["names"].get(cat, {}), r100)
-    out["recent"] = [e for e in data["log"] if e["category"] == cat and item_id in (e["a"], e["b"])][-20:]
+    names = data["names"].get(cat, {})
+    recent = [e for e in data["log"] if e["category"] == cat and item_id in (e["a"], e["b"])][-20:][::-1]
+    out["recent"] = [{**e, "aName": names.get(e["a"], ""), "bName": names.get(e["b"], "")} for e in recent]
     return out
 
 
@@ -465,7 +526,7 @@ def op_summary(args):
     best_win, best_loss = None, None
     for cat, cat_items in items.items():
         names = data["names"].get(cat, {})
-        per_cat[cat]["items"] = sum(1 for it in cat_items.values() if it["battles"] > 0)
+        per_cat[cat]["items"] = sum(1 for it in cat_items.values() if is_ranked(it))
         for it in cat_items.values():
             if it["bestStreak"] and (best_win is None or it["bestStreak"] > best_win["value"]):
                 best_win = {"category": cat, "id": it["id"], "name": names.get(it["id"], ""), "value": it["bestStreak"]}
@@ -508,6 +569,13 @@ def op_reset(args):
     return {"backup": backup, "changed": diff_rating100(before, after)}
 
 
+def op_ratings(args):
+    """Every ranked item's rating100, for a full re-sync to Stash."""
+    data = load_data()
+    current = rating100_map(replay(data), data["settings"])
+    return diff_rating100({}, current)
+
+
 OPERATIONS = {
     "ping": op_ping,
     "get_settings": op_get_settings,
@@ -519,6 +587,7 @@ OPERATIONS = {
     "recent_log": op_recent_log,
     "summary": op_summary,
     "reset": op_reset,
+    "ratings": op_ratings,
 }
 
 

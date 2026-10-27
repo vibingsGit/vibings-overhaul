@@ -155,6 +155,60 @@ class TestUndoAndLog(BackendTestCase):
         self.assertEqual(self.battle("1", "2", "a")["entry"]["seq"], 2)
 
 
+class TestPerformerBonus(BackendTestCase):
+    def scene(self, sid, *perf_ids):
+        return {"id": sid, "name": f"Scene {sid}", "performers": [{"id": p, "name": f"P{p}"} for p in perf_ids]}
+
+    def record(self, a, b, result, category="scenes"):
+        return self.call("record", category=category, a=a, b=b, result=result)
+
+    def performers(self):
+        return {it["id"]: it for it in self.call("get_items", category="performers")}
+
+    def test_winner_performers_get_default_25_percent(self):
+        out = self.record(self.scene("1", "10", "11"), self.scene("2", "20"), "a")
+        self.assertEqual(out["entry"]["perf"], {"a": ["10", "11"], "b": ["20"]})
+        perf = self.performers()
+        self.assertEqual(set(perf), {"10", "11"})  # loser bonus is 0% by default
+        self.assertEqual(perf["10"]["rating"], 1506.0)  # 24 * 25%
+        self.assertEqual(perf["10"]["bonus"], 6.0)
+        self.assertEqual(perf["10"]["battles"], 0)
+        self.assertEqual(perf["10"]["name"], "P10")
+        self.assertEqual(perf["10"]["rating100"], 51)  # 50 + 6/8 rounds to 51
+        changed = {(c["category"], c["id"]) for c in out["changed"]}
+        self.assertIn(("performers", "10"), changed)
+
+    def test_loser_bonus_and_disabled(self):
+        self.call("save_settings", settings={"performerBonus": {"loserPct": 50}})
+        self.record(self.scene("1", "10"), self.scene("2", "20"), "a")
+        self.assertEqual(self.performers()["20"]["rating"], 1488.0)  # -24 * 50%
+        out = self.call("save_settings", settings={"performerBonus": {"enabled": False}})
+        self.assertEqual(self.performers(), {})
+        self.assertEqual({c["rating100"] for c in out["changed"]}, {None})
+
+    def test_draw_and_skip_give_no_bonus(self):
+        self.record(self.scene("1", "10"), self.scene("2", "20"), "draw")
+        self.record(self.scene("1", "10"), self.scene("3", "30"), "skip")
+        self.assertEqual(self.performers(), {})
+
+    def test_bonus_adds_to_real_performer_battles_and_undo_removes_it(self):
+        self.battle("10", "20", "a", category="performers")  # P10 -> 1524
+        self.record(self.scene("1", "10"), self.scene("2"), "a")
+        self.assertEqual(self.performers()["10"]["rating"], 1530.0)
+        self.call("undo")
+        self.assertEqual(self.performers()["10"]["rating"], 1524.0)
+
+    def test_performers_ignored_for_other_categories(self):
+        out = self.record(self.scene("1", "10"), self.scene("2"), "a", category="studios")
+        self.assertNotIn("perf", out["entry"])
+
+    def test_ratings_lists_every_ranked_item(self):
+        self.record(self.scene("1", "10"), self.scene("2"), "a")
+        rows = self.call("ratings")
+        self.assertEqual({(r["category"], r["id"]) for r in rows},
+                         {("scenes", "1"), ("scenes", "2"), ("performers", "10")})
+
+
 class TestSummaryAndReset(BackendTestCase):
     def test_summary_counts(self):
         self.battle("1", "2", "a")
