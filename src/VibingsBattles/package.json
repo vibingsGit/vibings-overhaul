@@ -1,0 +1,15 @@
+{
+  "name": "vibings-battles",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "python3 -m unittest discover -s tests && node --test 'tests/*.test.mjs'",
+    "build": "npm test && stash-plugin-builder --out=../../plugins --minify",
+    "dev": "stash-plugin-builder --out=$HOME/.stash/plugins/vibings-dev",
+    "watch": "stash-plugin-builder --out=$HOME/.stash/plugins/vibings-dev --watch"
+  },
+  "devDependencies": {
+    "stash-plugin-builder": "1.0.3"
+  }
+}
