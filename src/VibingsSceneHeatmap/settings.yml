@@ -1,0 +1,13 @@
+id: VibingsSceneHeatmap
+name: Vibings Scene Heatmap
+description: Shows a curve of the most watched parts of a video over the player's timeline, from the parts you have actually watched.
+url: https://github.com/vibingsGit/vibings-overhaul
+version: 1.0.0
+ui:
+  javascript: ./src/index.jsx
+include:
+  - ./backend/vibings_scene_heatmap.py
+exec:
+  - python3
+  - "{pluginDir}/vibings_scene_heatmap.py"
+interface: raw

@@ -118,7 +118,17 @@ function PlayTrackingStats({ stats }) {
   );
 }
 
-const STATS_COMPONENTS = { VibingsBattles: BattlesStats, VibingsBetterOs: BetterOsStats, VibingsPlayTrackingFix: PlayTrackingStats };
+function SceneHeatmapStats({ stats }) {
+  const c = stats.counts;
+  return (
+    <KeyValues rows={[
+      ["Watched parts recorded", `${fmtDuration(c.seconds)} on ${fmtNumber(c.scenes)} ${c.scenes === 1 ? "scene" : "scenes"}`],
+      ["Data file", `${(stats.dataBytes / 1024).toFixed(1)} KB`],
+    ]} />
+  );
+}
+
+const STATS_COMPONENTS = { VibingsBattles: BattlesStats, VibingsBetterOs: BetterOsStats, VibingsPlayTrackingFix: PlayTrackingStats, VibingsSceneHeatmap: SceneHeatmapStats };
 
 export function Plugins() {
   const ds = useDataset("plugins");

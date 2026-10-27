@@ -1,7 +1,7 @@
 // Stash GraphQL access: plain queries, batched counts and paginated lists.
 
 export const LOG = "[Vibings Stats]";
-export const VERSION = "2.2.0"; // must match settings.yml (checked by tests)
+export const VERSION = "2.3.0"; // must match settings.yml (checked by tests)
 export const PLUGIN_ID = "VibingsStats";
 
 export async function graphql(query, variables = {}) {

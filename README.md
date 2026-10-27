@@ -15,9 +15,10 @@ https://vibingsGit.github.io/vibings-overhaul/main/index.yml
 | Plugin | Type | Status |
 | --- | --- | --- |
 | **Vibings Battles** | UI + Python backend | 2.2.0 |
-| **Vibings Stats** | UI | 2.2.0 |
+| **Vibings Stats** | UI | 2.3.0 |
 | **Vibings Better Os** | UI + Python backend | 1.0.0 |
 | **Vibings Play Tracking Fix** | UI + Python backend | 1.0.0 |
+| **Vibings Scene Heatmap** | UI + Python backend | 1.0.0 |
 
 Screenshots use placeholder images and sample names.
 
@@ -51,7 +52,7 @@ A fast statistics page that replaces Stash's own (optional).
 - Views for overview, activity (plays and O over time, weekday × hour heatmaps, streaks), library (resolutions, lengths, codecs, sizes, formats, growth), people (performers, studios, tags, groups), ratings, metadata health and plugins
 - Panels appear as soon as their data is loaded; the rest loads in the background and is cached
 - **Os** view: where in the video the O happens, time left in the video, image viewing time, quickest Os, tags with the most Os and recent Os (positions and viewing times come from Vibings Better Os)
-- Shows statistics from other Vibings plugins, such as Vibings Battles, Vibings Better Os and Vibings Play Tracking Fix (estimated earlier plays are shown apart from Stash's play count)
+- Shows statistics from other Vibings plugins, such as Vibings Battles, Vibings Better Os, Vibings Play Tracking Fix and Vibings Scene Heatmap (estimated earlier plays are shown apart from Stash's play count)
 - Version and status checks for Stash and every Vibings plugin
 
 <p>
@@ -100,6 +101,18 @@ Counts play time and plays from the time the video really plays.
   <img src="docs/screenshots/playtracking-scene.png" alt="Earlier plays on the scene page's History tab" width="49%">
 </p>
 <img src="docs/screenshots/playtracking-settings.png" alt="Vibings Play Tracking Fix settings" width="49%">
+
+### Vibings Scene Heatmap
+
+A curve of the most watched parts of a video over the player's timeline, like the "most replayed" curve on video sites.
+
+- Works with Stash's own scene player and with Vibings Better Scenes
+- Records the parts of each video you really watch: pauses and skips on the timeline do not count, rewatched parts rise and skipped parts stay low
+- The curve grows while you watch; shown while the pointer is on the timeline, or always
+- Curve height and smoothing settings, and recording can be turned off
+- Data stored on the Stash server, so every device sees the same curves
+- Import and export, automatic backups, restore and a database optimizer in **Settings → Tools → Vibings Overhaul**
+- Shown in Vibings Stats' plugin view
 
 ## Repository layout
 

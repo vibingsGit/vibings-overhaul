@@ -15,6 +15,10 @@ export async function playTrackingSummary() {
 
 const ADAPTERS = {
   VibingsPlayTrackingFix: playTrackingSummary,
+  async VibingsSceneHeatmap() {
+    const ping = await pluginOperation("VibingsSceneHeatmap", { operation: "ping" });
+    return { counts: ping.counts, dataBytes: ping.dataBytes };
+  },
   async VibingsBetterOs() {
     const ping = await pluginOperation("VibingsBetterOs", { operation: "ping" });
     return { counts: ping.counts, dataBytes: ping.dataBytes };
