@@ -71,7 +71,25 @@ function BattlesStats({ stats }) {
   );
 }
 
-const STATS_COMPONENTS = { VibingsBattles: BattlesStats };
+function BetterOsStats({ stats }) {
+  const c = stats.counts;
+  return (
+    <div className="vs-grid" style={{ marginBottom: 0 }}>
+      <div className="vs-span-6">
+        <KeyValues rows={[
+          ["Scene Os with video position", `${fmtNumber(c.timedOs)} on ${fmtNumber(c.scenes)} scenes`],
+          ["Image Os with viewing time", `${fmtNumber(c.sessionOs)} on ${fmtNumber(c.images)} images`],
+          ["Data file", `${(stats.dataBytes / 1024).toFixed(1)} KB`],
+        ]} />
+      </div>
+      <div className="vs-span-6">
+        <p className="vs-empty">All O statistics are in the <a href="/vibings-stats?view=os">Os</a> view.</p>
+      </div>
+    </div>
+  );
+}
+
+const STATS_COMPONENTS = { VibingsBattles: BattlesStats, VibingsBetterOs: BetterOsStats };
 
 export function Plugins() {
   const ds = useDataset("plugins");

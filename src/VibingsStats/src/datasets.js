@@ -3,12 +3,13 @@
 // (milliseconds even for large libraries); only scenes, performers and
 // the smaller entity lists are fetched item by item, in pages.
 
-import { graphql, countMany, findMany, fetchAll } from "./api.js";
+import { graphql, countMany, findMany, fetchAll, pluginOperation } from "./api.js";
 import {
   daysAgo, lastMonths, sceneActivity, sceneFileStats, performerStats, entityTops, sum,
-  RATING_BUCKETS, bucketMean,
+  RATING_BUCKETS, bucketMean, oStats,
 } from "./aggregate.js";
 import { loadIntegrations } from "./integrations.js";
+import { overhaulPluginStates } from "../../_shared/overhaul-plugins.js";
 
 export const LIBRARY = [
   { id: "scenes", label: "Scenes" },
@@ -291,6 +292,35 @@ export const DATASETS = [
         imagesUnorganized: c.imagesUnorganized,
         duplicates: c.duplicates,
         multiFile: c.multiFile,
+      };
+    },
+  },
+  {
+    name: "os",
+    label: "O details",
+    async load() {
+      const withO = { o_counter: { value: 0, modifier: "GREATER_THAN" } };
+      const [data, plugins] = await Promise.all([
+        graphql(`query VibingsStatsOs($s: SceneFilterType, $i: ImageFilterType) {
+          findScenes(scene_filter: $s, filter: { per_page: -1 }) { scenes { id title o_counter o_history files { basename duration } tags { id name } } }
+          findImages(image_filter: $i, filter: { per_page: -1 }) { images { id title o_counter visual_files { ... on BaseFile { basename } } } }
+        }`, { s: withO, i: withO }),
+        overhaulPluginStates(graphql),
+      ]);
+      const plugin = plugins.find((p) => p.id === "VibingsBetterOs");
+      let detail = null;
+      let detailError = null;
+      if (plugin?.enabled) {
+        try {
+          detail = await pluginOperation("VibingsBetterOs", { operation: "get_all" });
+        } catch (e) {
+          detailError = e.message || String(e);
+        }
+      }
+      return {
+        ...oStats(data.findScenes.scenes, data.findImages.images, detail),
+        plugin: plugin ? { installed: plugin.installed, enabled: plugin.enabled, version: plugin.version } : null,
+        detailError,
       };
     },
   },

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   dayKey, lastMonths, streaks, countBy, bucketize, topN, sceneActivity, periodTotals, dailySeries,
   monthlySeries, ageOn, performerStats, bucketMean, sceneFileStats, AGE_BUCKETS,
+  oStats,
 } from "../src/aggregate.js";
 
 const NOW = new Date(2026, 9, 27, 12, 0); // 27 Oct 2026, local time
@@ -83,4 +84,43 @@ test("performers and ratings", () => {
   assert.deepEqual(p.genders, [{ label: "Female", value: 1 }]);
   assert.equal(bucketMean([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), null);
   assert.equal(bucketMean([0, 0, 0, 0, 1, 1, 0, 0, 0, 0]), 50.5);
+});
+
+test("oStats: positions, classic Os and image sessions", () => {
+  const scenes = [
+    { id: "1", title: "A", o_counter: 3, o_history: ["2026-10-24T10:10:10Z", "2026-10-20T10:00:00Z", "2026-01-01T00:00:00Z"],
+      files: [{ duration: 600 }], tags: [{ id: "9", name: "Tag" }] },
+    { id: "2", title: "", o_counter: 1, o_history: ["2026-10-25T10:00:00Z"], files: [{ basename: "b.mp4", duration: 100 }], tags: [] },
+  ];
+  const images = [{ id: "5", title: "Img", o_counter: 2 }];
+  const detail = {
+    scenes: {
+      "1": [{ at: "2026-10-24T10:10:10Z", t: 540 }, { at: "2026-10-20T10:00:00Z", t: 60 }, { at: "2025-01-01T00:00:00Z", t: 5 }],
+      "2": [{ at: "2026-10-25T10:00:00Z", t: 99, d: 100 }],
+    },
+    images: { "5": [{ at: "2026-10-26T10:00:00Z", view: 45 }] },
+  };
+  const o = oStats(scenes, images, detail);
+  assert.equal(o.sceneOs, 4);
+  assert.equal(o.imageOs, 2);
+  assert.equal(o.timedOs, 3); // the detail whose O is gone from o_history does not count
+  assert.equal(o.sessionOs, 1);
+  assert.deepEqual(o.coverage.map((c) => c.value), [3, 1, 1, 1]);
+  assert.equal(o.positionBuckets[9].value, 2); // 90% and 99%
+  assert.equal(o.positionBuckets[1].value, 1); // 10%
+  assert.equal(o.medianBeforeEnd, 60);
+  assert.equal(o.quickest[0].value, 60);
+  assert.deepEqual(o.latestInVideo[0], { id: "2", name: "b.mp4", value: 99 });
+  assert.equal(o.viewBuckets[2].value, 1);
+  assert.deepEqual(o.topTags, [{ id: "9", name: "Tag", value: 3 }]);
+  assert.equal(o.recent[0].kind, "image");
+  assert.equal(o.recent.length, 5);
+});
+
+test("oStats without Vibings Better Os", () => {
+  const o = oStats([{ id: "1", o_counter: 2, o_history: ["2026-10-24T10:10:10Z", "2026-10-20T10:00:00Z"] }], [], null);
+  assert.equal(o.hasDetail, false);
+  assert.equal(o.timedOs, 0);
+  assert.equal(o.meanPct, null);
+  assert.deepEqual(o.coverage.map((c) => c.value), [0, 2, 0, 0]);
 });

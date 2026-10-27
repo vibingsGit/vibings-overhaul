@@ -142,6 +142,11 @@ const CSS = `
   .vs-table th, .vs-table td { padding: 6px 8px; border-bottom: 1px solid var(--vibings-stats-border); text-align: left; white-space: nowrap; }
   .vs-table .vs-num { text-align: right; font-variant-numeric: tabular-nums; }
   .vs-table .vs-name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+  .vs-note {
+    margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; color: var(--vibings-stats-muted);
+    background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .vs-warn-text { color: var(--vibings-stats-bad); }
   .vs-table a { color: inherit; }
   .vs-table a:hover { color: var(--vibings-stats-accent); }
   .vs-scroll { overflow-x: auto; }

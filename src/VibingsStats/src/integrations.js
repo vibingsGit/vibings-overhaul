@@ -8,6 +8,10 @@ import { overhaulPluginStates } from "../../_shared/overhaul-plugins.js";
 const BATTLE_TOP_CATEGORIES = 3; // categories with the most ranked items
 
 const ADAPTERS = {
+  async VibingsBetterOs() {
+    const ping = await pluginOperation("VibingsBetterOs", { operation: "ping" });
+    return { counts: ping.counts, dataBytes: ping.dataBytes };
+  },
   async VibingsBattles() {
     const op = (operation, args = {}) => pluginOperation("VibingsBattles", { operation, ...args });
     const [summary, recent] = await Promise.all([

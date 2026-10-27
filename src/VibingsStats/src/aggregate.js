@@ -283,3 +283,116 @@ export function sceneFileStats(scenes) {
     averageBitRate: files.length ? Math.round(sum(files, (f) => f.bit_rate) / files.length) : null,
   };
 }
+
+// ---------------------------------------------------------------- Os (Vibings Better Os)
+
+export const POSITION_BUCKETS = Array.from({ length: 10 }, (_, i) => ({ label: `${i * 10}–${i * 10 + 10}%`, min: i * 10, max: i === 9 ? null : i * 10 + 10 }));
+export const INTO_BUCKETS = [
+  { label: "< 2 min", max: 120 }, { label: "2–5 min", min: 120, max: 300 }, { label: "5–10 min", min: 300, max: 600 },
+  { label: "10–20 min", min: 600, max: 1200 }, { label: "20–30 min", min: 1200, max: 1800 }, { label: "30–60 min", min: 1800, max: 3600 },
+  { label: "1 h +", min: 3600 },
+];
+export const BEFORE_END_BUCKETS = [
+  { label: "Last 30 s", max: 30 }, { label: "30 s–1 min", min: 30, max: 60 }, { label: "1–2 min", min: 60, max: 120 },
+  { label: "2–5 min", min: 120, max: 300 }, { label: "5–10 min", min: 300, max: 600 }, { label: "10 min +", min: 600 },
+];
+export const VIEW_BUCKETS = [
+  { label: "< 10 s", max: 10 }, { label: "10–30 s", min: 10, max: 30 }, { label: "30 s–1 min", min: 30, max: 60 },
+  { label: "1–3 min", min: 60, max: 180 }, { label: "3–10 min", min: 180, max: 600 }, { label: "10 min +", min: 600 },
+];
+
+export function median(values) {
+  const v = values.filter((x) => x != null && !Number.isNaN(x)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+const mean = (values) => (values.length ? sum(values) / values.length : null);
+const imageTitle = (i) => i.title || i.visual_files?.[0]?.basename || `Image ${i.id}`;
+const utcSecond = (ts) => {
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 19) + "Z";
+};
+
+/**
+ * O statistics. scenes = [{ id, title, o_counter, o_history, files { basename duration }, tags { id name } }]
+ * with o_counter > 0, images = [{ id, title, o_counter, visual_files { basename } }] with o_counter > 0,
+ * detail = Vibings Better Os data ({ scenes: { id: [{ at, t, d }] }, images: { id: [{ at, view }] } }) or null.
+ * A detail only counts while its O is still in Stash.
+ */
+export function oStats(scenes, images, detail, recentLimit = 12) {
+  const timed = []; // { scene, at, t, d }
+  const recent = [];
+  let sceneOs = 0;
+  for (const s of scenes) {
+    const history = (s.o_history || []).map(utcSecond).filter(Boolean);
+    sceneOs += Math.max(s.o_counter || 0, history.length);
+    const byAt = new Map((detail?.scenes?.[s.id] || []).map((e) => [e.at, e]));
+    const duration = s.files?.[0]?.duration || null;
+    for (const at of history) {
+      const e = byAt.get(at);
+      const d = e?.d || duration;
+      const row = { kind: "scene", id: String(s.id), name: sceneTitle(s), at, t: e?.t ?? null, d };
+      if (row.t != null) timed.push(row);
+      recent.push(row);
+    }
+  }
+  let imageOs = 0;
+  const sessions = [];
+  for (const i of images) {
+    imageOs += i.o_counter || 0;
+    const events = (detail?.images?.[i.id] || []).slice(-(i.o_counter || 0));
+    for (const e of events) {
+      const row = { kind: "image", id: String(i.id), name: imageTitle(i), at: e.at, view: e.view ?? null };
+      if (row.view != null) sessions.push(row);
+      recent.push(row);
+    }
+  }
+
+  const pcts = timed.filter((r) => r.d).map((r) => Math.min(100, (r.t / r.d) * 100));
+  const beforeEnd = timed.filter((r) => r.d).map((r) => Math.max(0, r.d - r.t));
+  const views = sessions.map((r) => r.view);
+
+  const tagCounts = new Map();
+  for (const s of scenes) {
+    for (const t of s.tags || []) {
+      const cur = tagCounts.get(t.id) || { id: String(t.id), name: t.name, value: 0 };
+      cur.value += s.o_counter || 0;
+      tagCounts.set(t.id, cur);
+    }
+  }
+
+  return {
+    hasDetail: !!detail,
+    sceneOs,
+    imageOs,
+    totalOs: sceneOs + imageOs,
+    scenesWithO: scenes.length,
+    imagesWithO: images.length,
+    timedOs: timed.length,
+    sessionOs: sessions.length,
+    coverage: [
+      { label: "Scene Os with position", value: timed.length },
+      { label: "Classic scene Os", value: sceneOs - timed.length },
+      { label: "Image Os with viewing time", value: sessions.length },
+      { label: "Classic image Os", value: imageOs - sessions.length },
+    ],
+    positionBuckets: bucketize(pcts, POSITION_BUCKETS),
+    intoBuckets: bucketize(timed.map((r) => r.t), INTO_BUCKETS),
+    beforeEndBuckets: bucketize(beforeEnd, BEFORE_END_BUCKETS),
+    viewBuckets: bucketize(views, VIEW_BUCKETS),
+    meanPct: mean(pcts),
+    medianPct: median(pcts),
+    meanT: mean(timed.map((r) => r.t)),
+    medianBeforeEnd: median(beforeEnd),
+    meanView: mean(views),
+    medianView: median(views),
+    quickest: [...timed].sort((a, b) => a.t - b.t).slice(0, 5).map((r) => ({ id: r.id, name: r.name, value: r.t })),
+    latestInVideo: [...timed].filter((r) => r.d).sort((a, b) => (b.t / b.d) - (a.t / a.d)).slice(0, 5)
+      .map((r) => ({ id: r.id, name: r.name, value: Math.min(100, Math.round((r.t / r.d) * 100)) })),
+    longestViews: [...sessions].sort((a, b) => b.view - a.view).slice(0, 5).map((r) => ({ id: r.id, name: r.name, value: r.view })),
+    topTags: [...tagCounts.values()].filter((t) => t.value > 0).sort((a, b) => b.value - a.value).slice(0, 10),
+    topImages: topN(images, (i) => i.o_counter, imageTitle, 10),
+    recent: recent.sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, recentLimit),
+  };
+}

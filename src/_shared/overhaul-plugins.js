@@ -5,6 +5,7 @@
 export const OVERHAUL_PLUGINS = [
   { id: "VibingsBattles", name: "Vibings Battles", route: "/vibings-battles" },
   { id: "VibingsStats", name: "Vibings Stats", route: "/vibings-stats" },
+  { id: "VibingsBetterOs", name: "Vibings Better Os", route: "/vibings-stats?view=os" },
   { id: "VibingsHomepage", name: "Vibings Homepage", planned: true },
   { id: "VibingsBetterScenes", name: "Vibings Better Scenes", planned: true },
   { id: "VibingsBetterPerformers", name: "Vibings Better Performers", planned: true },

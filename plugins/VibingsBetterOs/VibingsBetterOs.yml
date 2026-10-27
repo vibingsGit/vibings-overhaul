@@ -1,0 +1,12 @@
+name: Vibings Better Os
+description: Stores the video position of every scene O and the viewing time of
+  image Os, with timeline markers and statistics.
+url: https://github.com/vibingsGit/vibings-overhaul
+version: 1.0.0
+ui:
+  javascript:
+    - VibingsBetterOs.js
+exec:
+  - python3
+  - "{pluginDir}/vibings_better_os.py"
+interface: raw

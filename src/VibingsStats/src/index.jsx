@@ -19,13 +19,14 @@ import { People } from "./views/People.jsx";
 import { Ratings } from "./views/Ratings.jsx";
 import { Health } from "./views/Health.jsx";
 import { Plugins } from "./views/Plugins.jsx";
+import { Os } from "./views/Os.jsx";
 import { Status, useStatus, StatusDot } from "./views/Status.jsx";
 
 const PluginApi = window.PluginApi;
 const React = PluginApi.React;
 const { useHistory, useLocation } = PluginApi.libraries.ReactRouterDOM;
 const {
-  faChartPie, faGauge, faFire, faPhotoFilm, faUsers, faStar, faHeartPulse, faPuzzlePiece, faGear,
+  faChartPie, faGauge, faFire, faDroplet, faPhotoFilm, faUsers, faStar, faHeartPulse, faPuzzlePiece, faGear,
 } = PluginApi.libraries.FontAwesomeSolid;
 
 const ROUTE = "/vibings-stats";
@@ -33,6 +34,7 @@ const ROUTE = "/vibings-stats";
 const VIEWS = [
   { id: "overview", label: "Overview", icon: faGauge, Component: Overview },
   { id: "activity", label: "Activity", icon: faFire, Component: Activity },
+  { id: "os", label: "Os", icon: faDroplet, Component: Os },
   { id: "library", label: "Library", icon: faPhotoFilm, Component: Library },
   { id: "people", label: "People", icon: faUsers, Component: People },
   { id: "ratings", label: "Ratings", icon: faStar, Component: Ratings },
