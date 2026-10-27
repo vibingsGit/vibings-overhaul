@@ -1,15 +1,41 @@
 // Settings tab: scoring, rating mapping, performer bonus, battle options,
-// and maintenance (full re-sync, resets).
+// pairing, filters, arena, performance and maintenance (database, re-sync,
+// resets).
 
 import { backend, syncRatings, CATEGORIES } from "./api.js";
 import { ConfirmModal } from "./ui.jsx";
 import { StatusPanel } from "./StatusPanel.jsx";
+import { FiltersEditor } from "./FiltersEditor.jsx";
+import { PerformancePanel, DatabasePanel } from "./MaintenancePanels.jsx";
 
 const PluginApi = window.PluginApi;
 const React = PluginApi.React;
 const { Button, Form } = PluginApi.libraries.Bootstrap;
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
+
+const SECTIONS = [
+  ["status", "Status"], ["scoring", "Scoring"], ["battle", "Battle"], ["filters", "Filters"],
+  ["arena", "Arena"], ["performance", "Performance"], ["maintenance", "Maintenance"],
+];
+const sectionId = (id) => `vb-settings-${id}`;
+
+/** Scroll the settings view to a section (e.g. "arena"). */
+export function scrollToSettings(id) {
+  setTimeout(() => document.getElementById(sectionId(id))?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+}
+
+function SelectField({ label, help, value, options, onChange }) {
+  return (
+    <div className="vb-field">
+      <label>{label}</label>
+      <Form.Control as="select" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map(([v, text]) => <option key={v} value={v}>{text}</option>)}
+      </Form.Control>
+      <span className="vb-help">{help}</span>
+    </div>
+  );
+}
 
 function NumberField({ label, help, value, min, max, step = 1, onChange }) {
   return (
@@ -50,6 +76,14 @@ export function SettingsTab({ active, settings, saveSettings, syncEnabled, notif
   const scoringChanged =
     JSON.stringify([draft.elo, draft.ratingMap, draft.performerBonus]) !==
     JSON.stringify([settings.elo, settings.ratingMap, settings.performerBonus]);
+  const saveBar = (
+    <div className="vb-row vb-savebar">
+      <Button variant="primary" disabled={!dirty || saving} onClick={() => save()}>{saving ? "Saving…" : "Save settings"}</Button>
+      <Button variant="secondary" disabled={!dirty || saving} onClick={() => setDraft(clone(settings))}>Discard changes</Button>
+      {scoringChanged && <span className="vb-muted">Saving recalculates every rating from the battle history.</span>}
+      {dirty && !scoringChanged && <span className="vb-muted">Unsaved changes</span>}
+    </div>
+  );
 
   const save = async () => {
     setSaving(true);
@@ -92,9 +126,15 @@ export function SettingsTab({ active, settings, saveSettings, syncEnabled, notif
 
   return (
     <div className="vb-form">
-      <StatusPanel settings={settings} />
+      <nav className="vb-settings-nav" aria-label="Settings sections">
+        {SECTIONS.map(([id, label]) => (
+          <button key={id} type="button" onClick={() => scrollToSettings(id)}>{label}</button>
+        ))}
+      </nav>
 
-      <fieldset>
+      <div id={sectionId("status")}><StatusPanel settings={settings} /></div>
+
+      <fieldset id={sectionId("scoring")}>
         <legend>Scoring (Elo)</legend>
         <NumberField label="Starting rating" help="Elo of an item before its first battle." value={draft.elo.initial} min={100} max={5000} onChange={set("elo", "initial")} />
         <NumberField label="K-factor" help="How much one battle moves the ratings." value={draft.elo.k} min={1} max={200} onChange={set("elo", "k")} />
@@ -126,19 +166,49 @@ export function SettingsTab({ active, settings, saveSettings, syncEnabled, notif
         <NumberField label="Loser penalty %" help="Share of the losing item's Elo loss applied to its performers." value={draft.performerBonus.loserPct} min={0} max={100} onChange={set("performerBonus", "loserPct")} />
       </fieldset>
 
-      <fieldset>
+      <fieldset id={sectionId("battle")}>
         <legend>Battle</legend>
         <CheckField label="Sync ratings to Stash" help="Write each item's rating to its Stash rating." checked={draft.ui.syncRatings !== false} onChange={set("ui", "syncRatings")} />
-        <NumberField label="Result delay (ms)" help="How long the result is shown before the next pair." value={draft.ui.resultDelayMs ?? 700} min={0} max={5000} step={100} onChange={set("ui", "resultDelayMs")} />
+        <CheckField label="Auto continue" help="Show the next pair automatically. Off: the result stays until you press Next (Space / Enter)." checked={draft.ui.autoContinue !== false} onChange={set("ui", "autoContinue")} />
+        <SelectField label="Battle animations" value={draft.ui.animations || "epic"} onChange={set("ui", "animations")}
+          options={[["epic", "Epic"], ["subtle", "Subtle"], ["off", "Off"]]}
+          help="Epic: winner stamp, crown, confetti, K.O. slash and a VS clash. Subtle: a short pop and colour. Effects can be limited per device under Performance." />
+        <NumberField label="Result delay (ms)" help="How long the result is shown before the next pair (auto continue). Animations extend it to at least 0.5 s (subtle) or 1.1 s (epic)." value={draft.ui.resultDelayMs ?? 700} min={0} max={5000} step={100} onChange={set("ui", "resultDelayMs")} />
+        <CheckField label="No duplicate performer" help="Scene, image and gallery battles never put the same performer on both sides." checked={draft.pairing.noDuplicatePerformer} onChange={set("pairing", "noDuplicatePerformer")} />
       </fieldset>
 
-      <div className="vb-row">
-        <Button variant="primary" disabled={!dirty || saving} onClick={save}>{saving ? "Saving…" : "Save settings"}</Button>
-        <Button variant="secondary" disabled={!dirty || saving} onClick={() => setDraft(clone(settings))}>Discard changes</Button>
-        {scoringChanged && <span className="vb-muted">Saving recalculates every rating from the battle history.</span>}
-      </div>
+      <fieldset id={sectionId("filters")}>
+        <legend>Blacklist &amp; whitelist</legend>
+        <FiltersEditor filters={draft.filters} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
+      </fieldset>
 
-      <fieldset style={{ marginTop: 24 }}>
+      <fieldset id={sectionId("arena")}>
+        <legend>Arena</legend>
+        <NumberField label="Fighters" help="Performers per arena fight (2–32)." value={draft.arena.fighters} min={2} max={32} onChange={set("arena", "fighters")} />
+        <SelectField label="Fighter selection" value={draft.arena.selection} onChange={set("arena", "selection")}
+          options={[["random", "Random performers"], ["top", "Top rated"], ["close", "Similar Elo"]]}
+          help="Random: any performer, ranked or not. Top rated: drawn from the best ranked performers. Similar Elo: performers close to each other in rating. The performer blacklist/whitelist applies." />
+        <NumberField label="Win bonus (Elo)" help="Elo the winner gains." value={draft.arena.winBonus} min={0} max={400} onChange={set("arena", "winBonus")} />
+        <NumberField label="Loss penalty (Elo)" help="Elo the first knocked out loses; later placements lose proportionally less (the runner-up the least)." value={draft.arena.lossPenalty} min={0} max={400} onChange={set("arena", "lossPenalty")} />
+        <NumberField label="Elo influence %" help="How much Elo affects strength. 0 = pure luck, 100 = a fighter 400 Elo above average hits about 3x as hard." value={draft.arena.eloInfluence} min={0} max={100} step={5} onChange={set("arena", "eloInfluence")} />
+        <SelectField label="Default speed" value={String(draft.arena.speed)} onChange={(v) => set("arena", "speed")(Number(v))}
+          options={[["1", "1x"], ["2", "2x"], ["4", "4x"]]} help="Playback speed when a fight starts; it can be changed during the fight." />
+        <CheckField label="Record results" help="Off: fights are exhibitions and ratings are not changed." checked={draft.arena.record} onChange={set("arena", "record")} />
+      </fieldset>
+
+      {saveBar}
+
+      <fieldset id={sectionId("performance")} style={{ marginTop: 24 }}>
+        <legend>Performance (this device)</legend>
+        <PerformancePanel />
+      </fieldset>
+
+      <fieldset id={sectionId("maintenance")}>
+        <legend>Database</legend>
+        <DatabasePanel active={active} syncEnabled={syncEnabled} notifyError={notifyError} onDataChanged={onDataChanged} />
+      </fieldset>
+
+      <fieldset>
         <legend>Maintenance</legend>
         <div className="vb-row">
           <Button variant="secondary" disabled={!!progress} onClick={resyncAll}>

@@ -102,3 +102,25 @@ test("rememberPair keeps bounded, most-recent-first memory", () => {
   assert.deepEqual(m.itemList, ["5", "6", "3"]);
   assert.ok(m.recentPairs.has(pairKey("6", "5")));
 });
+
+test("filters: deny drops ids, allow restricts the pool", () => {
+  const ranked = [1, 2, 3, 4].map((i) => ({ id: String(i), rating: 1500, battles: 0 }));
+  const c1 = buildCandidates(ranked, ["5"], 1500, new Set(), { deny: new Set(["1", "5"]) });
+  assert.deepEqual(c1.map((c) => c.id), ["2", "3", "4"]);
+  const c2 = buildCandidates(ranked, ["5", "6"], 1500, new Set(), { allow: new Set(["2", "6"]) });
+  assert.deepEqual(c2.map((c) => c.id), ["2", "6"]);
+  for (let i = 0; i < 50; i++) {
+    const pair = pickPair(ranked, ["5", "6"], { allow: new Set(["2", "6"]) }, rng(i + 1));
+    assert.deepEqual([...pair].sort(), ["2", "6"]);
+  }
+});
+
+test("conflicts rejects pairs", () => {
+  const ranked = ["1", "2", "3"].map((id) => ({ id, rating: 1500, battles: 0 }));
+  const conflicts = (a, b) => [a, b].sort().join() === "1,2";
+  for (let i = 0; i < 100; i++) {
+    const pair = pickPair(ranked, [], { conflicts }, rng(i + 1));
+    assert.notDeepEqual([...pair].sort(), ["1", "2"]);
+  }
+  assert.equal(pickPair(ranked.slice(0, 2), [], { conflicts }, rng()), null);
+});

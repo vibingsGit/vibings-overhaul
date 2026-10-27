@@ -1,9 +1,9 @@
 // Stash GraphQL + Python backend access, and per-category definitions.
 
-import { pickPair, rememberPair, emptyMemory } from "./pairing.js";
+import { pickPair, rememberPair, emptyMemory, pairKey } from "./pairing.js";
 
 export const LOG = "[Vibings Battles]";
-export const VERSION = "2.1.0"; // must match settings.yml (checked by tests)
+export const VERSION = "2.2.0"; // must match settings.yml (checked by tests)
 const PLUGIN_ID = "VibingsBattles";
 
 export async function graphql(query, variables = {}) {
@@ -43,6 +43,8 @@ const IMAGES_OF = (key) => ({
   fields: "paths { thumbnail }", image: (it) => it.paths?.thumbnail,
 });
 const performerList = (it) => it.performers?.map((p) => p.name).join(", ");
+// Categories whose items list performers (for "no duplicate performer").
+const performerIds = (it) => (it.performers || []).map((p) => String(p.id));
 
 export const CATEGORIES = [
   {
@@ -59,6 +61,7 @@ export const CATEGORIES = [
     video: (it) => it.paths?.preview,
     href: (id) => `/scenes/${id}`,
     hasPerformers: true,
+    performerIds,
   },
   {
     id: "images",
@@ -75,6 +78,7 @@ export const CATEGORIES = [
     thumb: (it) => it.paths?.thumbnail,
     href: (id) => `/images/${id}`,
     hasPerformers: true,
+    performerIds,
   },
   {
     id: "performers",
@@ -133,6 +137,7 @@ export const CATEGORIES = [
     subtitle: (it) => [it.studio?.name, `${it.image_count} images`, it.date].filter(Boolean).join(" · "),
     image: (it) => it.paths?.cover,
     href: (id) => `/galleries/${id}`,
+    performerIds,
     fallback: [IMAGES_OF("galleries")],
   },
 ];
@@ -194,14 +199,38 @@ export function fetchFallbackMedia(cat, id) {
 
 const SAMPLE_SIZE = 40;
 
-// Random ids from Stash; brings unranked items into the candidate pool.
-async function fetchSample(cat) {
+// Random items from Stash; brings unranked items into the candidate pool.
+// With `perfCache` the items' performer ids are fetched and remembered too.
+export async function fetchSample(cat, { size = SAMPLE_SIZE, perfCache = null } = {}) {
   const seed = Math.floor(Math.random() * 1e8);
+  const withPerf = perfCache && cat.performerIds;
   const data = await graphql(
-    `query VibingsBattlesSample($f: FindFilterType) { ${cat.find}(filter: $f) { ${cat.listKey} { id } } }`,
-    { f: { sort: `random_${seed}`, per_page: SAMPLE_SIZE } }
+    `query VibingsBattlesSample($f: FindFilterType) { ${cat.find}(filter: $f) { ${cat.listKey} { id${withPerf ? " performers { id }" : ""} } } }`,
+    { f: { sort: `random_${seed}`, per_page: size } }
   );
-  return data[cat.find][cat.listKey].map((it) => it.id);
+  const list = data[cat.find][cat.listKey];
+  if (withPerf) list.forEach((it) => perfCache.set(String(it.id), cat.performerIds(it)));
+  return list.map((it) => String(it.id));
+}
+
+/**
+ * Blacklist/whitelist of a category from settings, as id sets.
+ * allow is null unless the whitelist is switched on.
+ */
+export function categoryFilter(settings, catId) {
+  const f = settings?.filters?.[catId];
+  const deny = new Set((f?.blacklist || []).map((r) => String(r.id)));
+  const allow = f?.whitelistOn ? new Set((f.whitelist || []).map((r) => String(r.id))) : null;
+  return { deny, allow };
+}
+
+/** Search a category by name/title for the filter editor. */
+export async function searchItems(cat, q, perPage = 12) {
+  const data = await graphql(
+    `query VibingsBattlesSearch($f: FindFilterType) { ${cat.find}(filter: $f) { ${cat.listKey} { ${cat.fields} } } }`,
+    { f: { q, per_page: perPage } }
+  );
+  return data[cat.find][cat.listKey];
 }
 
 async function fetchItemsById(cat, ids) {
@@ -240,23 +269,97 @@ export async function fetchItemsSafe(cat, ids) {
   return { items, missing };
 }
 
-// Choose and load the next pair. `ctx` holds ranked items, session memory
-// and known-missing ids; returns { pair, memory }.
+const sharesPerformer = (perfCache, a, b) => {
+  const pa = perfCache.get(String(a));
+  const pb = perfCache.get(String(b));
+  return !!pa && !!pb && pa.some((p) => pb.includes(p));
+};
+
+/**
+ * Choose and load the next pair. `ctx` holds ranked items, session memory,
+ * known-missing ids, the category filter ({ allow, deny }), the
+ * noDuplicatePerformer flag and a performer cache; returns { pair, memory }.
+ */
 export async function fetchSmartPair(cat, ctx) {
-  const sample = await fetchSample(cat);
+  const { allow, deny } = ctx.filter || {};
+  if (allow && allow.size < 2) throw new Error(`${cat.label}: the whitelist is on but has fewer than two items.`);
+  const noDup = !!ctx.noDuplicatePerformer && !!cat.performerIds;
+  const perfCache = noDup ? ctx.perfCache || new Map() : null;
+  // With a whitelist the pool is known; otherwise sample Stash at random.
+  const sample = allow ? [...allow] : await fetchSample(cat, { perfCache });
+  const rejected = new Set(); // pairs found to share a performer after loading
+  const conflicts = noDup ? (a, b) => rejected.has(pairKey(a, b)) || sharesPerformer(perfCache, a, b) : null;
+
   let memory = ctx.memory;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    let ids = pickPair(ctx.ranked, sample, { ...memory, missing: ctx.missing, initialRating: ctx.initialRating });
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const opts = { missing: ctx.missing, initialRating: ctx.initialRating, allow, deny, conflicts };
+    let ids = pickPair(ctx.ranked, sample, { ...memory, ...opts });
     if (!ids && memory.pairList.length) {
       memory = emptyMemory(); // every pair was recent: forget and try again
-      ids = pickPair(ctx.ranked, sample, { missing: ctx.missing, initialRating: ctx.initialRating });
+      ids = pickPair(ctx.ranked, sample, opts);
     }
-    if (!ids) throw new Error(`${cat.label}: at least two items are needed for a battle.`);
+    if (!ids && conflicts) ids = pickPair(ctx.ranked, sample, { ...opts, conflicts: null }); // every pair shares a performer
+    if (!ids) throw new Error(`${cat.label}: at least two items are needed for a battle${allow || deny?.size ? " (check the blacklist/whitelist)" : ""}.`);
     const { items, missing } = await fetchItemsSafe(cat, ids);
-    if (!missing.length) return { pair: ids.map((id) => items.get(String(id))), memory: rememberPair(memory, ids[0], ids[1]) };
     missing.forEach((id) => ctx.missing.add(id));
+    if (missing.length) continue;
+    const pair = ids.map((id) => items.get(String(id)));
+    if (noDup) {
+      pair.forEach((it) => perfCache.set(String(it.id), cat.performerIds(it)));
+      if (attempt < 7 && sharesPerformer(perfCache, ids[0], ids[1])) {
+        rejected.add(pairKey(ids[0], ids[1]));
+        continue;
+      }
+    }
+    return { pair, memory: rememberPair(memory, ids[0], ids[1]) };
   }
   throw new Error(`${cat.label}: could not find a valid pair.`);
+}
+
+/** Start downloading a pair's pictures so they show instantly. */
+export function preloadPair(cat, pair) {
+  for (const it of pair || []) {
+    const url = cat.image(it);
+    if (url && !isPlaceholder(url)) new Image().src = url;
+  }
+}
+
+/**
+ * Ids that no longer exist in Stash. Batches that fail (Stash rejects a
+ * whole query when one id is missing) are split in half until the missing
+ * ids are found.
+ */
+export async function findMissingIds(cat, ids, onProgress) {
+  const missing = [];
+  let checked = 0;
+  const check = async (chunk) => {
+    try {
+      await fetchItemsByIdOnly(cat, chunk);
+      checked += chunk.length;
+      onProgress?.(checked, ids.length);
+    } catch {
+      if (chunk.length === 1) {
+        missing.push(String(chunk[0]));
+        checked += 1;
+        onProgress?.(checked, ids.length);
+        return;
+      }
+      const mid = Math.ceil(chunk.length / 2);
+      await check(chunk.slice(0, mid));
+      await check(chunk.slice(mid));
+    }
+  };
+  for (let i = 0; i < ids.length; i += 200) await check(ids.slice(i, i + 200));
+  return missing;
+}
+
+async function fetchItemsByIdOnly(cat, ids) {
+  const data = await graphql(
+    `query VibingsBattlesExists($ids: [ID!]) { ${cat.find}(ids: $ids) { ${cat.listKey} { id } } }`,
+    { ids }
+  );
+  const found = new Set(data[cat.find][cat.listKey].map((it) => String(it.id)));
+  if (ids.some((id) => !found.has(String(id)))) throw new Error("missing ids");
 }
 
 // ===========================================================================
@@ -386,4 +489,65 @@ export async function runStatusChecks(settings) {
     checks.push({ id: "bonus", label: "Performer bonus", state: "info", detail: pb?.enabled ? `On — winner ${pb.winnerPct}%, loser ${pb.loserPct}%` : "Off" });
   }
   return checks;
+}
+
+// ===========================================================================
+// Arena
+// ===========================================================================
+
+const shuffle = (list) => {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
+/**
+ * Choose the arena lineup from the performers category following the arena
+ * settings (fighters, selection) and the performer blacklist/whitelist.
+ * `ranked` = backend items of the performers category.
+ * Returns [{ id, item, name, elo }].
+ */
+export async function pickArenaFighters(settings, ranked) {
+  const cat = CATEGORY_BY_ID.performers;
+  const { fighters: size, selection } = settings.arena;
+  const initial = settings.elo.initial;
+  const { allow, deny } = categoryFilter(settings, "performers");
+  const usable = (id) => !deny.has(String(id)) && (!allow || allow.has(String(id)));
+  const rankedOk = ranked.filter((r) => usable(r.id));
+  const eloOf = new Map(rankedOk.map((r) => [String(r.id), r.rating]));
+
+  let ids;
+  if (allow) {
+    ids = shuffle([...allow].filter(usable));
+  } else if (selection === "top") {
+    const top = [...rankedOk].sort((a, b) => b.rating - a.rating).slice(0, size * 3);
+    ids = shuffle(top.map((r) => String(r.id)));
+  } else if (selection === "close" && rankedOk.length) {
+    const anchor = rankedOk[Math.floor(Math.random() * rankedOk.length)].rating;
+    ids = [...rankedOk].sort((a, b) => Math.abs(a.rating - anchor) - Math.abs(b.rating - anchor)).map((r) => String(r.id));
+  } else {
+    ids = [];
+  }
+  // Fill up with random performers (also brings in unranked ones).
+  if (!allow && ids.length < size * 2) {
+    const sample = await fetchSample(cat, { size: size * 3 });
+    ids = [...new Set([...ids, ...shuffle(sample).filter(usable)])];
+  }
+
+  const chosen = [];
+  for (let start = 0; start < ids.length && chosen.length < size; start += size * 2) {
+    const batch = ids.slice(start, start + size * 2);
+    const { items } = await fetchItemsSafe(cat, batch);
+    for (const id of batch) {
+      const item = items.get(String(id));
+      if (item && chosen.length < size && !chosen.some((c) => c.id === String(id))) {
+        chosen.push({ id: String(id), item, name: cat.title(item), elo: eloOf.get(String(id)) ?? initial });
+      }
+    }
+  }
+  if (chosen.length < 2) throw new Error("The arena needs at least two performers (check the performer blacklist/whitelist).");
+  return chosen;
 }

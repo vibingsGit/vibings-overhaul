@@ -24,7 +24,7 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-VERSION = "2.1.0"  # plugin version; must match settings.yml (checked by tests)
+VERSION = "2.2.0"  # plugin version; must match settings.yml (checked by tests)
 DATA_VERSION = 4
 DATA_DIR = os.environ.get("VIBINGS_BATTLES_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(DATA_DIR, "vibings-battles-data.json")
@@ -34,6 +34,10 @@ CATEGORIES = ("scenes", "images", "performers", "studios", "groups", "galleries"
 BONUS_CATEGORIES = ("scenes", "images")  # items that have performers
 RESULTS = ("a", "b", "draw", "skip")
 MAX_RECENT_LOG = 500
+MAX_FILTER_ITEMS = 2000  # per list, per category
+MAX_ARENA_FIGHTERS = 32
+ARENA_SELECTIONS = ("random", "top", "close")
+BACKUP_TAGS = ("reset", "corrupt", "compact")
 
 DEFAULT_SETTINGS = {
     "elo": {
@@ -54,6 +58,23 @@ DEFAULT_SETTINGS = {
         "enabled": True,
         "winnerPct": 25,
         "loserPct": 0,
+    },
+    "pairing": {
+        # Scene/image/gallery battles never put the same performer on both sides.
+        "noDuplicatePerformer": False,
+    },
+    # category -> {"blacklist": [{id, name}], "whitelist": [{id, name}], "whitelistOn": bool}
+    # Blacklisted items never battle; with whitelistOn only whitelisted items do.
+    "filters": {},
+    # Arena: automatic free-for-all between performers.
+    "arena": {
+        "fighters": 8,
+        "winBonus": 20,  # Elo for the winner
+        "lossPenalty": 10,  # Elo taken from the first knocked out, scaled down by placement
+        "eloInfluence": 50,  # % how much Elo affects a fighter's strength
+        "selection": "random",  # random | top | close
+        "speed": 1,
+        "record": True,  # False = exhibition, ratings are not touched
     },
     # Free-form UI settings; the backend stores them as-is.
     "ui": {},
@@ -151,6 +172,11 @@ def _num(value, lo, hi, fallback):
     return int(v) if float(v).is_integer() else v
 
 
+# Sections a partial save merges into instead of replacing. "filters" merges
+# per category, so saving one category's lists keeps the others.
+MERGED_SETTINGS = ("elo", "ratingMap", "performerBonus", "pairing", "filters", "arena", "ui")
+
+
 def merge_settings(raw):
     s = copy.deepcopy(DEFAULT_SETTINGS)
     if not isinstance(raw, dict):
@@ -174,9 +200,54 @@ def merge_settings(raw):
     s["performerBonus"]["winnerPct"] = _num(pb.get("winnerPct"), 0, 100, dpb["winnerPct"])
     s["performerBonus"]["loserPct"] = _num(pb.get("loserPct"), 0, 100, dpb["loserPct"])
 
+    pr = raw.get("pairing") if isinstance(raw.get("pairing"), dict) else {}
+    if isinstance(pr.get("noDuplicatePerformer"), bool):
+        s["pairing"]["noDuplicatePerformer"] = pr["noDuplicatePerformer"]
+
+    fl = raw.get("filters") if isinstance(raw.get("filters"), dict) else {}
+    for cat in CATEGORIES:
+        f = fl.get(cat)
+        if not isinstance(f, dict):
+            continue
+        entry = {
+            "blacklist": _ref_list(f.get("blacklist")),
+            "whitelist": _ref_list(f.get("whitelist")),
+            "whitelistOn": f.get("whitelistOn") is True,
+        }
+        if entry["blacklist"] or entry["whitelist"] or entry["whitelistOn"]:
+            s["filters"][cat] = entry
+
+    ar = raw.get("arena") if isinstance(raw.get("arena"), dict) else {}
+    da = DEFAULT_SETTINGS["arena"]
+    s["arena"]["fighters"] = int(_num(ar.get("fighters"), 2, MAX_ARENA_FIGHTERS, da["fighters"]))
+    s["arena"]["winBonus"] = _num(ar.get("winBonus"), 0, 400, da["winBonus"])
+    s["arena"]["lossPenalty"] = _num(ar.get("lossPenalty"), 0, 400, da["lossPenalty"])
+    s["arena"]["eloInfluence"] = _num(ar.get("eloInfluence"), 0, 100, da["eloInfluence"])
+    if ar.get("selection") in ARENA_SELECTIONS:
+        s["arena"]["selection"] = ar["selection"]
+    s["arena"]["speed"] = _num(ar.get("speed"), 0.25, 8, da["speed"])
+    if isinstance(ar.get("record"), bool):
+        s["arena"]["record"] = ar["record"]
+
     if isinstance(raw.get("ui"), dict):
         s["ui"] = raw["ui"]
     return s
+
+
+def _ref_list(raw):
+    """[{id, name}] with unique string ids; malformed entries are dropped."""
+    out, seen = [], set()
+    for r in raw if isinstance(raw, list) else []:
+        if not isinstance(r, dict) or r.get("id") in (None, ""):
+            continue
+        item_id = str(r["id"])
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        out.append({"id": item_id, "name": str(r.get("name") or "")[:200]})
+        if len(out) >= MAX_FILTER_ITEMS:
+            break
+    return out
 
 
 # ---------------------------------------------------------------- Rating engine
@@ -196,6 +267,9 @@ def new_item(item_id, initial):
         "firstBattled": None,
         "lastBattled": None,
         "bonus": 0.0,  # Elo received through the performer bonus
+        "arenaPlayed": 0,
+        "arenaWins": 0,
+        "arenaElo": 0.0,  # Elo won or lost in the arena
     }
 
 
@@ -208,7 +282,16 @@ def k_for(item, elo):
 
 
 def is_ranked(item):
-    return item["battles"] > 0 or item.get("bonus", 0) != 0
+    return item["battles"] > 0 or item.get("bonus", 0) != 0 or item.get("arenaPlayed", 0) > 0
+
+
+def is_arena(entry):
+    return entry.get("type") == "arena"
+
+
+def entry_ids(entry):
+    """Item ids taking part in a log entry."""
+    return entry["ranking"] if is_arena(entry) else [entry["a"], entry["b"]]
 
 
 def apply_performer_bonus(items, entry, deltas, settings):
@@ -270,11 +353,37 @@ def apply_entry(items, entry, settings):
     return a, b, (da, db)
 
 
+def arena_deltas(n, win_bonus, loss_penalty):
+    """Elo change per placement (winner first). The first knocked out loses the
+    full penalty, later placements proportionally less."""
+    out = [float(win_bonus)]
+    for place in range(1, n):
+        out.append(-loss_penalty * place / (n - 1))
+    return [round(d, 2) for d in out]
+
+
+def apply_arena(items, entry, settings):
+    """Apply an arena entry. Its Elo changes are stored in the entry, so later
+    arena setting changes do not rewrite history."""
+    cat = items.setdefault(entry["category"], {})
+    initial = settings["elo"]["initial"]
+    for place, (item_id, delta) in enumerate(zip(entry["ranking"], entry["delta"])):
+        it = cat.get(item_id) or cat.setdefault(item_id, new_item(item_id, initial))
+        it["rating"] += delta
+        it["arenaElo"] += delta
+        it["arenaPlayed"] += 1
+        if place == 0:
+            it["arenaWins"] += 1
+
+
 def replay(data):
     """Derive all item states from the log."""
     items = {}
     for entry in data["log"]:
-        apply_entry(items, entry, data["settings"])
+        if is_arena(entry):
+            apply_arena(items, entry, data["settings"])
+        else:
+            apply_entry(items, entry, data["settings"])
     return items
 
 
@@ -319,6 +428,7 @@ def public_item(item, names, r100):
     out = dict(item)
     out["rating"] = round(item["rating"], 1)
     out["bonus"] = round(item.get("bonus", 0.0), 1)
+    out["arenaElo"] = round(item.get("arenaElo", 0.0), 1)
     out["name"] = names.get(item["id"], "")
     out["rating100"] = r100.get(item["id"])
     return out
@@ -357,6 +467,45 @@ def parse_performers(raw):
         if isinstance(p, dict) and p.get("id") not in (None, ""):
             out.append((str(p["id"]), str(p.get("name") or "")))
     return out
+
+
+def with_names(entry, names):
+    if is_arena(entry):
+        return {**entry, "names": [names.get(i, "") for i in entry["ranking"]]}
+    return {**entry, "aName": names.get(entry["a"], ""), "bName": names.get(entry["b"], "")}
+
+
+def list_backups():
+    """Backup files next to the data file, newest first."""
+    prefix = os.path.basename(DATA_FILE) + "."
+    out = []
+    try:
+        names = os.listdir(DATA_DIR)
+    except OSError:
+        return out
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        tag = name[len(prefix):].split("-", 1)[0]
+        if tag not in BACKUP_TAGS:
+            continue
+        try:
+            st = os.stat(os.path.join(DATA_DIR, name))
+        except OSError:
+            continue
+        out.append({"name": name, "tag": tag, "bytes": st.st_size, "mtime": st.st_mtime})
+    out.sort(key=lambda b: (b["mtime"], b["name"]), reverse=True)
+    return out
+
+
+def referenced_ids(log_entries):
+    """{category: set(ids)} of every item a log mentions (incl. bonus performers)."""
+    refs = {}
+    for e in log_entries:
+        refs.setdefault(e["category"], set()).update(entry_ids(e))
+        for side in (e.get("perf") or {}).values():
+            refs.setdefault("performers", set()).update(side)
+    return refs
 
 
 def local_day(ts, tz_offset_min):
@@ -398,7 +547,7 @@ def op_save_settings(args):
         before = rating100_map(replay(data), data["settings"])
         combined = copy.deepcopy(data["settings"])
         for key, value in incoming.items():
-            if key in ("elo", "ratingMap", "performerBonus") and isinstance(value, dict):
+            if key in MERGED_SETTINGS and isinstance(value, dict):
                 combined[key] = {**combined.get(key, {}), **value}
             else:
                 combined[key] = value
@@ -498,8 +647,8 @@ def op_get_item(args):
     r100 = rating100_map(items, data["settings"]).get(cat, {})
     out = public_item(item, data["names"].get(cat, {}), r100)
     names = data["names"].get(cat, {})
-    recent = [e for e in data["log"] if e["category"] == cat and item_id in (e["a"], e["b"])][-20:][::-1]
-    out["recent"] = [{**e, "aName": names.get(e["a"], ""), "bName": names.get(e["b"], "")} for e in recent]
+    recent = [e for e in data["log"] if e["category"] == cat and item_id in entry_ids(e)][-20:][::-1]
+    out["recent"] = [with_names(e, names) for e in recent]
     return out
 
 
@@ -512,8 +661,7 @@ def op_recent_log(args):
         entries = [e for e in entries if e["category"] == cat]
     out = []
     for e in entries[-limit:][::-1]:
-        names = data["names"].get(e["category"], {})
-        out.append({**e, "aName": names.get(e["a"], ""), "bName": names.get(e["b"], "")})
+        out.append(with_names(e, data["names"].get(e["category"], {})))
     return out
 
 
@@ -522,12 +670,15 @@ def op_summary(args):
     data = load_data()
     items = replay(data)
 
-    per_cat = {c: {"battles": 0, "draws": 0, "skips": 0, "items": 0} for c in CATEGORIES}
+    per_cat = {c: {"battles": 0, "draws": 0, "skips": 0, "arenas": 0, "items": 0} for c in CATEGORIES}
     daily = {}
     for e in data["log"]:
-        pc = per_cat.setdefault(e["category"], {"battles": 0, "draws": 0, "skips": 0, "items": 0})
-        day = daily.setdefault(local_day(e["ts"], tz), {"battles": 0, "draws": 0, "skips": 0})
-        if e["result"] == "skip":
+        pc = per_cat.setdefault(e["category"], {"battles": 0, "draws": 0, "skips": 0, "arenas": 0, "items": 0})
+        day = daily.setdefault(local_day(e["ts"], tz), {"battles": 0, "draws": 0, "skips": 0, "arenas": 0})
+        if is_arena(e):
+            pc["arenas"] += 1
+            day["arenas"] += 1
+        elif e["result"] == "skip":
             pc["skips"] += 1
             day["skips"] += 1
         else:
@@ -553,6 +704,7 @@ def op_summary(args):
             "battles": decided,
             "draws": sum(pc["draws"] for pc in per_cat.values()),
             "skips": sum(pc["skips"] for pc in per_cat.values()),
+            "arenas": sum(pc["arenas"] for pc in per_cat.values()),
             "lastBattle": data["log"][-1]["ts"] if data["log"] else None,
             "highestWinStreak": best_win,
             "highestLossStreak": best_loss,
@@ -590,6 +742,144 @@ def op_ratings(args):
     return diff_rating100({}, current)
 
 
+def op_record_arena(args):
+    """Store a finished arena fight. ranking = [{id, name}], winner first;
+    kills (optional) = knockouts per fighter in the same order."""
+    raw = arg_json(args, "ranking")
+    if not isinstance(raw, list):
+        raise OpError("argument 'ranking' must be a list")
+    refs = [parse_ref(r, "ranking") for r in raw]
+    ids = [item_id for item_id, _ in refs]
+    if not 2 <= len(ids) <= MAX_ARENA_FIGHTERS:
+        raise OpError(f"an arena needs 2-{MAX_ARENA_FIGHTERS} fighters")
+    if len(set(ids)) != len(ids):
+        raise OpError("a fighter can only appear once")
+    kills = arg_json(args, "kills")
+
+    with locked():
+        data = load_data()
+        items = replay(data)
+        before = rating100_map(items, data["settings"])
+        arena = data["settings"]["arena"]
+        entry = {
+            "seq": data["nextSeq"],
+            "ts": now_iso(),
+            "type": "arena",
+            "category": "performers",
+            "ranking": ids,
+            "delta": arena_deltas(len(ids), arena["winBonus"], arena["lossPenalty"]),
+        }
+        if isinstance(kills, list) and len(kills) == len(ids) and all(isinstance(k, int) and k >= 0 for k in kills):
+            entry["kills"] = kills
+        apply_arena(items, entry, data["settings"])
+        data["log"].append(entry)
+        data["nextSeq"] += 1
+        names = data["names"].setdefault("performers", {})
+        for item_id, name in refs:
+            if name:
+                names[item_id] = name
+        after = rating100_map(items, data["settings"])
+        save_data(data)
+    return {"entry": entry, "changed": diff_rating100(before, after)}
+
+
+def op_db_info(args):
+    """Size and contents of the data file, for the maintenance view."""
+    data = load_data()
+    refs = referenced_ids(data["log"])
+    names = sum(len(v) for v in data["names"].values())
+    orphan = sum(1 for cat, nm in data["names"].items() for i in nm if i not in refs.get(cat, ()))
+    backups = list_backups()
+    return {
+        "bytes": os.path.getsize(DATA_FILE) if os.path.exists(DATA_FILE) else 0,
+        "entries": len(data["log"]),
+        "battles": sum(1 for e in data["log"] if not is_arena(e) and e["result"] != "skip"),
+        "skips": sum(1 for e in data["log"] if not is_arena(e) and e["result"] == "skip"),
+        "arenas": sum(1 for e in data["log"] if is_arena(e)),
+        "names": names,
+        "orphanNames": orphan,
+        "backups": backups,
+        "backupBytes": sum(b["bytes"] for b in backups),
+        "ids": {cat: sorted(v) for cat, v in refs.items()},
+    }
+
+
+def op_compact(args):
+    """Defragment the data file: drop entries of items deleted from Stash
+    (removeItems = {category: [ids]}), optionally skip entries, names nobody
+    references, and old backups (keepBackups = newest N to keep). A backup
+    is made first."""
+    remove_raw = arg_json(args, "removeItems") or {}
+    if not isinstance(remove_raw, dict):
+        raise OpError("argument 'removeItems' must be an object")
+    remove = {cat: {str(i) for i in ids} for cat, ids in remove_raw.items() if cat in CATEGORIES and isinstance(ids, list)}
+    drop_skips = args.get("dropSkips") is True
+    keep = args.get("keepBackups")
+    keep = None if keep is None else int(_num(keep, 0, 1000, 5))
+
+    with locked():
+        data = load_data()
+        bytes_before = os.path.getsize(DATA_FILE) if os.path.exists(DATA_FILE) else 0
+        before = rating100_map(replay(data), data["settings"])
+        backup = backup_data("compact")
+        gone_perf = remove.get("performers", set())
+        new_log, removed_entries = [], 0
+        for e in data["log"]:
+            gone = remove.get(e["category"], set())
+            if is_arena(e):
+                if gone & set(e["ranking"]):
+                    keep_idx = [i for i, item_id in enumerate(e["ranking"]) if item_id not in gone]
+                    if len(keep_idx) < 2:
+                        removed_entries += 1
+                        continue
+                    e = {**e, "ranking": [e["ranking"][i] for i in keep_idx], "delta": [e["delta"][i] for i in keep_idx]}
+                    if "kills" in e:
+                        e["kills"] = [e["kills"][i] for i in keep_idx]
+                new_log.append(e)
+                continue
+            if (drop_skips and e["result"] == "skip") or e["a"] in gone or e["b"] in gone:
+                removed_entries += 1
+                continue
+            if e.get("perf") and gone_perf:
+                e = {**e, "perf": {side: [p for p in ids if p not in gone_perf] for side, ids in e["perf"].items()}}
+            new_log.append(e)
+        data["log"] = new_log
+
+        refs = referenced_ids(new_log)
+        removed_names = 0
+        for cat in list(data["names"]):
+            kept = {i: n for i, n in data["names"][cat].items() if i in refs.get(cat, ())}
+            removed_names += len(data["names"][cat]) - len(kept)
+            if kept:
+                data["names"][cat] = kept
+            else:
+                del data["names"][cat]
+
+        after = rating100_map(replay(data), data["settings"])
+        save_data(data)
+
+        removed_backups = 0
+        if keep is not None:
+            # The backup just made counts as the newest, even within the same second.
+            ordered = sorted(list_backups(), key=lambda b: b["name"] != backup)
+            for b in ordered[keep:]:
+                try:
+                    os.remove(os.path.join(DATA_DIR, b["name"]))
+                    removed_backups += 1
+                except OSError as err:
+                    log(f"could not remove backup {b['name']}: {err}")
+        bytes_after = os.path.getsize(DATA_FILE)
+    return {
+        "bytesBefore": bytes_before,
+        "bytesAfter": bytes_after,
+        "removedEntries": removed_entries,
+        "removedNames": removed_names,
+        "removedBackups": removed_backups,
+        "backup": backup if os.path.exists(os.path.join(DATA_DIR, backup or "")) else None,
+        "changed": diff_rating100(before, after),
+    }
+
+
 OPERATIONS = {
     "ping": op_ping,
     "get_settings": op_get_settings,
@@ -602,6 +892,9 @@ OPERATIONS = {
     "summary": op_summary,
     "reset": op_reset,
     "ratings": op_ratings,
+    "record_arena": op_record_arena,
+    "db_info": op_db_info,
+    "compact": op_compact,
 }
 
 

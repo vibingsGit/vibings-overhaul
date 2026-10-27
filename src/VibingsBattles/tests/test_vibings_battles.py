@@ -219,7 +219,7 @@ class TestSummaryAndReset(BackendTestCase):
         self.assertEqual(s["totals"]["battles"], 3)
         self.assertEqual(s["totals"]["draws"], 1)
         self.assertEqual(s["totals"]["skips"], 1)
-        self.assertEqual(s["categories"]["scenes"], {"battles": 2, "draws": 1, "skips": 1, "items": 2})
+        self.assertEqual(s["categories"]["scenes"], {"battles": 2, "draws": 1, "skips": 1, "arenas": 0, "items": 2})
         self.assertEqual(sum(d["battles"] for d in s["daily"].values()), 3)
 
     def test_local_day_uses_timezone_offset(self):
@@ -317,6 +317,107 @@ class TestValidationAndStorage(BackendTestCase):
         with open(os.path.join(HERE, "..", "settings.yml")) as f:
             version = next(line.split(":", 1)[1].strip() for line in f if line.startswith("version:"))
         self.assertEqual(self.vb.VERSION, version)
+
+
+class TestNewSettings(BackendTestCase):
+    def test_filters_are_validated_and_merged_per_category(self):
+        out = self.call("save_settings", settings={"filters": {
+            "scenes": {"blacklist": [{"id": 1, "name": "A"}, {"id": "1"}, {"name": "no id"}], "whitelistOn": "yes"},
+            "cars": {"blacklist": [{"id": "9"}]},
+        }})
+        self.assertEqual(out["settings"]["filters"], {
+            "scenes": {"blacklist": [{"id": "1", "name": "A"}], "whitelist": [], "whitelistOn": False}})
+        out = self.call("save_settings", settings={"filters": {"images": {"whitelist": [{"id": "5"}], "whitelistOn": True}}})
+        self.assertEqual(set(out["settings"]["filters"]), {"scenes", "images"})
+        out = self.call("save_settings", settings={"filters": {"scenes": {"blacklist": []}}})
+        self.assertEqual(set(out["settings"]["filters"]), {"images"})  # emptied category disappears
+
+    def test_arena_and_pairing_defaults_and_ranges(self):
+        s = self.call("get_settings")
+        self.assertEqual(s["arena"]["fighters"], 8)
+        self.assertFalse(s["pairing"]["noDuplicatePerformer"])
+        out = self.call("save_settings", settings={"arena": {"fighters": 99, "winBonus": 30, "selection": "x"},
+                                                   "pairing": {"noDuplicatePerformer": True}})
+        self.assertEqual(out["settings"]["arena"]["fighters"], 8)
+        self.assertEqual(out["settings"]["arena"]["winBonus"], 30)
+        self.assertEqual(out["settings"]["arena"]["selection"], "random")
+        self.assertTrue(out["settings"]["pairing"]["noDuplicatePerformer"])
+
+    def test_ui_is_merged(self):
+        self.call("save_settings", settings={"ui": {"a": 1}})
+        self.assertEqual(self.call("save_settings", settings={"ui": {"b": 2}})["settings"]["ui"], {"a": 1, "b": 2})
+
+
+class TestArena(BackendTestCase):
+    def fight(self, *ids, kills=None):
+        args = {"ranking": [{"id": i, "name": f"P{i}"} for i in ids]}
+        if kills is not None:
+            args["kills"] = kills
+        return self.call("record_arena", **args)
+
+    def test_deltas_by_placement(self):
+        self.assertEqual(self.vb.arena_deltas(5, 20, 10), [20.0, -2.5, -5.0, -7.5, -10.0])
+        self.assertEqual(self.vb.arena_deltas(2, 20, 10), [20.0, -10.0])
+
+    def test_record_updates_performers_and_undo_reverts(self):
+        out = self.fight("1", "2", "3", kills=[2, 0, 0])
+        self.assertEqual(out["entry"]["type"], "arena")
+        self.assertEqual(out["entry"]["kills"], [2, 0, 0])
+        self.assertEqual(len(out["changed"]), 3)
+        perf = {it["id"]: it for it in self.call("get_items", category="performers")}
+        self.assertEqual(perf["1"]["rating"], 1520.0)
+        self.assertEqual(perf["3"]["rating"], 1490.0)
+        self.assertEqual((perf["1"]["arenaWins"], perf["1"]["arenaPlayed"], perf["1"]["battles"]), (1, 1, 0))
+        item = self.call("get_item", category="performers", id="2")
+        self.assertEqual(item["recent"][0]["names"], ["P1", "P2", "P3"])
+        self.assertEqual(self.call("summary")["totals"]["arenas"], 1)
+        self.call("undo")
+        self.assertEqual(self.call("get_items", category="performers"), [])
+
+    def test_settings_change_does_not_rewrite_past_arenas(self):
+        self.fight("1", "2")
+        self.call("save_settings", settings={"arena": {"winBonus": 100}})
+        perf = {it["id"]: it for it in self.call("get_items", category="performers")}
+        self.assertEqual(perf["1"]["rating"], 1520.0)
+
+    def test_invalid_arena(self):
+        self.assertIn("needs", self.call_err("record_arena", ranking=[{"id": "1"}]))
+        self.assertIn("once", self.call_err("record_arena", ranking=[{"id": "1"}, {"id": "1"}]))
+
+
+class TestCompact(BackendTestCase):
+    def test_db_info(self):
+        self.battle("1", "2", "a")
+        self.battle("1", "3", "skip")
+        self.call("record_arena", ranking=[{"id": "7"}, {"id": "8"}])
+        info = self.call("db_info")
+        self.assertEqual((info["entries"], info["battles"], info["skips"], info["arenas"]), (3, 1, 1, 1))
+        self.assertEqual(info["ids"]["scenes"], ["1", "2", "3"])
+        self.assertEqual(info["orphanNames"], 0)
+
+    def test_compact_removes_deleted_items_skips_names_and_backups(self):
+        self.battle("1", "2", "a")
+        self.battle("1", "3", "skip")
+        self.battle("2", "4", "b")
+        self.call("record_arena", ranking=[{"id": "7"}, {"id": "8"}, {"id": "9"}], kills=[1, 1, 0])
+        self.call("reset", category="groups")  # makes a reset backup
+        out = self.call("compact", removeItems={"scenes": ["4"], "performers": ["8"]}, dropSkips=True, keepBackups=1)
+        self.assertEqual(out["removedEntries"], 2)
+        self.assertEqual(out["removedNames"], 2)  # scenes 3 and 4
+        self.assertEqual(out["removedBackups"], 1)  # the reset backup; the compact backup is newest
+        self.assertIn({"category": "scenes", "id": "4", "rating100": None}, out["changed"])
+        self.assertTrue(out["backup"].startswith("vibings-battles-data.json.compact-"))
+        log = self.call("recent_log", limit=10)
+        self.assertEqual(len(log), 2)
+        self.assertEqual(log[0]["ranking"], ["7", "9"])
+        self.assertEqual(log[0]["kills"], [1, 0])
+        self.assertEqual(self.call("db_info")["orphanNames"], 0)
+
+    def test_arena_with_one_fighter_left_is_dropped(self):
+        self.call("record_arena", ranking=[{"id": "7"}, {"id": "8"}])
+        out = self.call("compact", removeItems={"performers": ["8"]})
+        self.assertEqual(out["removedEntries"], 1)
+        self.assertEqual(self.call("db_info")["entries"], 0)
 
 
 if __name__ == "__main__":

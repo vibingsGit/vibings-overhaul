@@ -88,6 +88,7 @@ export function StatsTab({ active, refreshKey, notifyError }) {
         <StatCard label="Battles" value={t.battles} note={`${today} today`} />
         <StatCard label="Draws" value={t.draws} note={t.battles ? `${Math.round((t.draws / t.battles) * 100)}% of battles` : null} />
         <StatCard label="Skips" value={t.skips} />
+        <StatCard label="Arena fights" value={t.arenas || 0} />
         <StatCard label="Active days" value={activeDays} note={activeDays ? `${(t.battles / activeDays).toFixed(1)} battles / day` : null} />
         <StatCard label="Last battle" value={timeAgo(t.lastBattle)} />
         <StatCard
@@ -162,7 +163,7 @@ export function StatsTab({ active, refreshKey, notifyError }) {
                       <td className="vb-name">{d.text}</td>
                       <td>{d.outcome}</td>
                       <td className="vb-num vb-muted">
-                        {e.result === "skip" ? "" : `${formatDelta(e.delta[0])} / ${formatDelta(e.delta[1])}`}
+                        {e.result === "skip" ? "" : `${formatDelta(e.delta[0])} / ${formatDelta(e.delta[e.delta.length - 1])}`}
                       </td>
                     </tr>
                   );

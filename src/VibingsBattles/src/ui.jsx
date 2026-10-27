@@ -1,6 +1,7 @@
 // Small shared components and formatters.
 
 import { fetchFallbackMedia, isPlaceholder } from "./api.js";
+import { ordinal } from "./arena.js";
 
 const PluginApi = window.PluginApi;
 const React = PluginApi.React;
@@ -60,6 +61,13 @@ export function winRate(it) {
 
 /** Text for a log entry from the point of view of `itemId` (or neutral). */
 export function describeEntry(e, itemId) {
+  if (e.type === "arena") {
+    const winner = e.names?.[0] || `#${e.ranking[0]}`;
+    const n = e.ranking.length;
+    if (itemId == null) return { text: `Arena: ${winner} won (${n} fighters)`, outcome: "" };
+    const place = e.ranking.indexOf(itemId) + 1;
+    return { text: `Arena, ${n} fighters`, outcome: place === 1 ? "Won" : ordinal(place) };
+  }
   const aName = e.aName || `#${e.a}`;
   const bName = e.bName || `#${e.b}`;
   if (e.result === "skip") return { text: `${aName} vs ${bName}`, outcome: "Skipped" };

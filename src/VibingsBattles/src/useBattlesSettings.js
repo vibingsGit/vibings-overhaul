@@ -30,13 +30,15 @@ export function useBattlesSettings({ onChanged } = {}) {
     }
   }, [syncEnabled, notifyError]);
 
-  const saveSettings = React.useCallback(async (next) => {
+  // `next` may be partial; sections are merged by the backend. `silent`
+  // skips the toast when the caller reports the change itself.
+  const saveSettings = React.useCallback(async (next, { silent = false } = {}) => {
     try {
       const out = await backend("save_settings", { settings: next });
       setSettings(out.settings);
       const willSync = out.settings.ui?.syncRatings !== false;
       const n = willSync ? await sync(out.changed, true) : 0;
-      toast.success(n ? `Settings saved, ${n} Stash ratings updated` : "Settings saved");
+      if (!silent || n) toast.success(n ? `Settings saved, ${n} Stash ratings updated` : "Settings saved");
       if (out.changed.length) onChanged?.();
       return out;
     } catch (e) {
@@ -46,8 +48,8 @@ export function useBattlesSettings({ onChanged } = {}) {
   }, [sync, toast, notifyError, onChanged]);
 
   const toggleSync = React.useCallback(
-    () => saveSettings({ ui: { ...(settings?.ui || {}), syncRatings: !syncEnabled } }),
-    [saveSettings, settings, syncEnabled]
+    () => saveSettings({ ui: { syncRatings: !syncEnabled } }),
+    [saveSettings, syncEnabled]
   );
 
   return { settings, syncEnabled, saveSettings, toggleSync, sync, notifyError };

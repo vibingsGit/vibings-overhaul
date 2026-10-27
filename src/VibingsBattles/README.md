@@ -8,7 +8,11 @@ Source for the Vibings Battles plugin. The built plugin is written to `../../plu
 | --- | --- |
 | `settings.yml` | stash-plugin-builder config (becomes `VibingsBattles.yml`) |
 | `src/index.jsx` | UI entry: page layout (side panel + main panel), nav item, Stash Tools panel; the default export is called by the builder |
-| `src/*Tab.jsx` | Battle, Leaderboard, Stats and Settings views |
+| `src/*Tab.jsx` | Battle, Arena, Leaderboard, Stats and Settings views |
+| `src/FiltersEditor.jsx` | Blacklist / whitelist editor |
+| `src/MaintenancePanels.jsx` | Performance (per browser) and database optimization panels |
+| `src/arena.js` | Arena fight simulation (pure, unit tested) |
+| `src/perf.js` | Performance options, stored in `localStorage`, with low-end device detection |
 | `src/api.js` | `VERSION`, Stash GraphQL, backend calls, category definitions, fallback media, rating sync, status checks |
 | `src/useBattlesSettings.js` | Settings state shared by the page and the Tools panel |
 | `src/StatusPanel.jsx` | Version and health checks |
@@ -16,13 +20,13 @@ Source for the Vibings Battles plugin. The built plugin is written to `../../plu
 | `src/styles.js` | All CSS, themable through `--vibings-battles-*` variables |
 | `../_shared/overhaul-tools.jsx` | Shared "Vibings Overhaul" section in Stash's Settings → Tools |
 | `backend/vibings_battles.py` | Python backend, stdlib only |
-| `tests/` | Backend (unittest), pairing and version (node --test) tests |
+| `tests/` | Backend (unittest), pairing, arena and version (node --test) tests |
 
 ## Commands
 
 ```sh
 npm install        # once
-npm test           # backend, pairing and version tests
+npm test           # backend, pairing, arena and version tests
 npm run dev        # build over the installed plugin in ~/.stash/plugins for local testing
 npm run build      # tests + minified build into ../../plugins
 ```
@@ -52,12 +56,21 @@ Operations (`runPluginOperation` args, `operation` + fields):
 | `summary` | `tzOffset` (JS `getTimezoneOffset()`) | totals, per category, daily |
 | `reset` | `category?` | `{backup, changed}` |
 | `ratings` | | every ranked item's `{category, id, rating100}` |
+| `record_arena` | `ranking: [{id, name}]` (winner first), `kills?` | `{entry, changed}` |
+| `db_info` | | file size, entry counts, names (unused), backups, referenced ids per category |
+| `compact` | `removeItems?: {category: [ids]}`, `dropSkips?`, `keepBackups?` | `{bytesBefore, bytesAfter, removedEntries, removedNames, removedBackups, backup, changed}` |
 
 `changed` lists `{category, id, rating100}` whose Stash rating should be updated; `rating100: null` means clear it. Errors are returned as GraphQL errors.
 
 Scoring is Elo: start 1500, K 32 (48 for the first 10 battles of an item), draw = 0.5. `rating100` is `50 + (elo - 1500) / 8` clamped to 1–100, or rank-based when `ratingMap.mode` is `percentile`.
 
 Fallback media: performers, studios, groups and galleries whose Stash image is the generated placeholder (`default=true`) are shown with a picture from their own library (a scene, or an image); the choice is stable per item.
+
+Settings sections: `elo`, `ratingMap`, `performerBonus`, `pairing` (`noDuplicatePerformer`), `filters` (per category `{blacklist, whitelist, whitelistOn}`, lists of `{id, name}`), `arena` and free-form `ui` (`syncRatings`, `autoContinue`, `animations`, `resultDelayMs`). A partial `save_settings` merges into these sections; `filters` merges per category.
+
+Arena: the UI simulates the fight (`src/arena.js`) and stores the final ranking with `record_arena`. The winner gains `winBonus`; the first knocked out loses `lossPenalty`, later placements proportionally less. The Elo changes are stored in the entry, so changing the arena settings later does not rewrite past fights. Strength is `10^((elo - lineup mean) / 800 * eloInfluence%)`.
+
+Database optimization (`compact`): backs up the file, removes entries of items deleted from Stash (the UI finds them by bisecting id batches) and optionally skips, drops names nothing references and keeps the newest `keepBackups` backups.
 
 Performer bonus: in scene and image battles the winning item's performers get `winnerPct`% (default 25) of its Elo gain, and optionally the losing item's performers `loserPct`% of its loss. Performers are stored in the log entry, so changing the bonus settings recalculates history.
 

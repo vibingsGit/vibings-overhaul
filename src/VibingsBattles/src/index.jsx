@@ -14,13 +14,15 @@ import { Icon } from "./ui.jsx";
 import { BattleTab } from "./BattleTab.jsx";
 import { LeaderboardTab } from "./LeaderboardTab.jsx";
 import { StatsTab } from "./StatsTab.jsx";
-import { SettingsTab } from "./SettingsTab.jsx";
+import { SettingsTab, scrollToSettings } from "./SettingsTab.jsx";
+import { ArenaTab } from "./ArenaTab.jsx";
+import { usePerformance, perfClasses } from "./perf.js";
 
 const PluginApi = window.PluginApi;
 const React = PluginApi.React;
 const { NavLink, useHistory, useLocation } = PluginApi.libraries.ReactRouterDOM;
 const { Button, Form } = PluginApi.libraries.Bootstrap;
-const { faTrophy, faBolt, faRankingStar, faChartColumn, faGear, faFilm, faImage, faUser, faBuilding, faLayerGroup, faImages } =
+const { faTrophy, faBolt, faRankingStar, faChartColumn, faGear, faFilm, faImage, faUser, faBuilding, faLayerGroup, faImages, faShieldHalved } =
   PluginApi.libraries.FontAwesomeSolid;
 
 // Not under /plugin/: the Stash server owns that prefix for plugin assets,
@@ -29,6 +31,7 @@ const ROUTE = "/vibings-battles";
 
 const VIEWS = [
   { id: "battle", label: "Battle", icon: faBolt, usesCategory: true },
+  { id: "arena", label: "Arena", icon: faShieldHalved },
   { id: "leaderboard", label: "Leaderboard", icon: faRankingStar, usesCategory: true },
   { id: "stats", label: "Stats", icon: faChartColumn },
   { id: "settings", label: "Settings", icon: faGear },
@@ -120,6 +123,7 @@ function BattlesPage() {
   const bump = React.useCallback(() => setRefreshKey((k) => k + 1), []);
   const { settings, syncEnabled, saveSettings, toggleSync, sync, notifyError } = useBattlesSettings({ onChanged: bump });
   const { state: status } = useStatus(settings);
+  const { options: perf } = usePerformance();
 
   const params = new URLSearchParams(location.search);
   const view = VIEWS.some((v) => v.id === params.get("view")) ? params.get("view") : "battle";
@@ -135,6 +139,10 @@ function BattlesPage() {
     history.replace({ search: search ? `?${search}` : "" });
   }, [history]);
   const setView = (id) => setParams({ view: id });
+  const openSettings = (section) => {
+    setView("settings");
+    scrollToSettings(section);
+  };
   const setCategory = React.useCallback((id) => setParams({ cat: id }), [setParams]);
 
   React.useEffect(() => {
@@ -158,13 +166,15 @@ function BattlesPage() {
   }, [view, catId, ranked]);
 
   return (
-    <div className="vb-layout">
+    <div className={`vb-layout ${perfClasses(perf)}`}>
       <SidePanel view={view} onView={setView} catId={catId} onCategory={setCategory} counts={counts} ranked={ranked}
         syncEnabled={syncEnabled} settingsLoaded={!!settings} onToggleSync={toggleSync} status={status} />
       <main className="vb-mainpanel">
         {/* The battle view stays mounted so switching views keeps the current pair. */}
         <BattleTab active={view === "battle"} catId={catId} onCategory={setCategory} settings={settings}
-          sync={sync} notifyError={notifyError} onBattle={bump} />
+          saveSettings={saveSettings} sync={sync} notifyError={notifyError} onBattle={bump} />
+        <ArenaTab active={view === "arena"} settings={settings} sync={sync} notifyError={notifyError} onBattle={bump}
+          onOpenSettings={() => openSettings("arena")} />
         <LeaderboardTab active={view === "leaderboard"} catId={catId} refreshKey={refreshKey} notifyError={notifyError} />
         <StatsTab active={view === "stats"} refreshKey={refreshKey} notifyError={notifyError} />
         <SettingsTab active={view === "settings"} settings={settings} saveSettings={saveSettings}
@@ -181,8 +191,9 @@ function BattlesPage() {
 function BattlesToolsPanel() {
   injectStyles(); // the Battles page may not have been opened yet
   const { settings, syncEnabled, saveSettings, notifyError } = useBattlesSettings();
+  const { options: perf } = usePerformance();
   return (
-    <div className="vb-tools">
+    <div className={`vb-tools ${perfClasses(perf)}`}>
       <SettingsTab active settings={settings} saveSettings={saveSettings} syncEnabled={syncEnabled}
         notifyError={notifyError} onDataChanged={() => {}} />
     </div>

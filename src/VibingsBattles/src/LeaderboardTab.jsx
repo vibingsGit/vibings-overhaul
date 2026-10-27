@@ -68,6 +68,9 @@ function ItemModal({ cat, itemId, stashItem, onClose }) {
                 <StatCard label="W-L-D" value={`${item.wins}-${item.losses}-${item.draws}`} note={`${winRate(item) ?? "–"}% win rate`} />
                 <StatCard label="Streak" value={formatStreak(item.streak)} note={`Best ${item.bestStreak}W · worst ${item.worstStreak}L`} />
                 <StatCard label="Skipped" value={item.skips} />
+                {item.arenaPlayed > 0 && (
+                  <StatCard label="Arena" value={`${item.arenaWins}/${item.arenaPlayed} won`} note={`${formatDelta(item.arenaElo)} Elo from the arena`} />
+                )}
                 <StatCard label="First battle" value={timeAgo(item.firstBattled)} />
               </div>
             </div>
@@ -79,7 +82,7 @@ function ItemModal({ cat, itemId, stashItem, onClose }) {
                 <tbody>
                   {item.recent.map((e) => {
                     const d = describeEntry(e, itemId);
-                    const delta = e.delta?.[e.a === itemId ? 0 : 1];
+                    const delta = e.type === "arena" ? e.delta?.[e.ranking.indexOf(itemId)] : e.delta?.[e.a === itemId ? 0 : 1];
                     return (
                       <tr key={e.seq} style={{ cursor: "default" }}>
                         <td className="vb-muted">{timeAgo(e.ts)}</td>

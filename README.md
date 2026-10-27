@@ -14,18 +14,22 @@ https://vibingsGit.github.io/vibings-overhaul/main/index.yml
 
 | Plugin | Type | Status |
 | --- | --- | --- |
-| **Vibings Battles** | UI + Python backend | 2.0.0 |
+| **Vibings Battles** | UI + Python backend | 2.2.0 |
 
 ### Vibings Battles
 
 Head-to-head battles that build an Elo ranking for scenes, images, performers, studios, groups and galleries.
 
 - Pick the better of two items, call a draw or skip the pair; undo the last battle at any time
+- Battle animations (epic, subtle or off) and an auto continue toggle
+- **Arena**: an auto battler where performers fight a free-for-all; Elo can affect strength, and the winner gains Elo while the knocked out lose some
+- Blacklist and whitelist per category, and an option to never pit the same performer against itself
 - Elo scoring in the backend, mapped to Stash's `rating100` (optional sync)
 - Optional performer bonus: scene and image wins also lift the performers
 - Smart pairing that favours under-battled items and close matches
 - Whole pictures, and items without an image show one from their own library
 - Leaderboard, stats and settings; side panel layout that works on phones
+- Performance options per device for weaker machines, and a database optimizer
 - Settings and status checks also in Stash's **Settings → Tools → Vibings Overhaul**
 - Battle log stored on the Stash server, shared across devices
 
