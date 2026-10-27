@@ -39,6 +39,10 @@ npm run build      # tests + minified build into ../../plugins
 
 **Import.** Accepts this plugin's export and the older O-timestamp format (`{"version": 2, "scenes": {id: [{seconds, createdAt}]}}`), merged or replacing the current data; a backup is made first.
 
+## Other plugins
+
+`window.VibingsBetterOs` gives other Vibings plugins the Os tab (`OsPanel`), the per-scene state (`useScene`, `getScene`, `onScene`, `loadScene`, `rows`), `addSceneO(sceneId, source)` and `getSettings`. A scene player that is not video.js marks its `<video>` with `data-vibings-scene-id`; the O position is then read from it (Vibings Better Scenes does this).
+
 ## Version
 
 The version must be the same in `settings.yml`, `package.json`, `src/api.js` (`VERSION`) and the backend (`VERSION`); `npm test` fails otherwise.

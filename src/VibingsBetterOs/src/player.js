@@ -1,12 +1,34 @@
-// The scene page's video.js player, and the image that is open right now.
+// The scene page's player (video.js or a custom one), and the image that is open right now.
 
 export function sceneIdFromPath(pathname = location.pathname) {
   const m = pathname.match(/^\/scenes\/(\d+)(?:\/|$)/);
   return m ? m[1] : null;
 }
 
-export function getPlayer() {
+export function getVideoJsPlayer() {
   return document.querySelector(".video-js")?.player || null;
+}
+
+// Other scene players (such as Vibings Better Scenes) mark their <video>
+// element with data-vibings-scene-id; it gets the same small API as video.js.
+function customPlayer() {
+  const v = document.querySelector("video[data-vibings-scene-id]");
+  if (!v) return null;
+  return {
+    custom: true,
+    sceneId: v.dataset.vibingsSceneId,
+    currentTime: (t) => (t === undefined ? v.currentTime : (v.currentTime = t)),
+    duration: () => v.duration,
+    paused: () => v.paused,
+    play: () => v.play(),
+    played: () => v.played,
+    isDisposed: () => !v.isConnected,
+  };
+}
+
+/** The scene page's player: video.js, or a custom player's <video>. */
+export function getPlayer() {
+  return getVideoJsPlayer() || customPlayer();
 }
 
 /** { t, d } of the player when it shows this scene and has been played; else null. */

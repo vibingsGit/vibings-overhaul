@@ -29,7 +29,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-VERSION = "1.0.0"  # plugin version; must match settings.yml (checked by tests)
+VERSION = "1.1.0"  # plugin version; must match settings.yml (checked by tests)
 DATA_VERSION = 1
 FORMAT = "vibings-better-os"
 DATA_DIR = os.environ.get("VIBINGS_BETTER_OS_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))

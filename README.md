@@ -15,10 +15,11 @@ https://vibingsGit.github.io/vibings-overhaul/main/index.yml
 | Plugin | Type | Status |
 | --- | --- | --- |
 | **Vibings Battles** | UI + Python backend | 2.2.0 |
-| **Vibings Stats** | UI | 2.3.0 |
-| **Vibings Better Os** | UI + Python backend | 1.0.0 |
+| **Vibings Stats** | UI | 2.3.1 |
+| **Vibings Better Os** | UI + Python backend | 1.1.0 |
 | **Vibings Play Tracking Fix** | UI + Python backend | 1.0.0 |
 | **Vibings Scene Heatmap** | UI + Python backend | 1.0.0 |
+| **Vibings Better Scenes** | UI | 1.0.0 |
 
 Screenshots use placeholder images and sample names.
 
@@ -72,6 +73,7 @@ Gives every O a moment: the video position of scene Os and the viewing time of i
 - Data stored on the Stash server, so every device sees the same Os
 - Import and export (also older O-timestamp files), automatic backups, restore and a database optimizer in **Settings → Tools → Vibings Overhaul**
 - Detailed O statistics in Vibings Stats
+- Works with Vibings Better Scenes' player too, and gives other plugins its Os panel and O data (`window.VibingsBetterOs`)
 
 <p>
   <img src="docs/screenshots/betteros-scene.png" alt="Scene page with the Os tab and timeline markers" width="49%">
@@ -113,6 +115,33 @@ A curve of the most watched parts of a video over the player's timeline, like th
 - Data stored on the Stash server, so every device sees the same curves
 - Import and export, automatic backups, restore and a database optimizer in **Settings → Tools → Vibings Overhaul**
 - Shown in Vibings Stats' plugin view
+
+### Vibings Better Scenes
+
+A new scene page with its own player, built around the other Vibings plugins. Stash's own scene page stays one tab away.
+
+- **Player**: thumbnail previews on the timeline, markers as chapters, O positions, A/B loop, speed, stream choice, picture in picture, theater mode and keyboard shortcuts
+- Frame by frame stepping, screenshots (download, copy or set as the scene's cover) and quick markers (B) without leaving the player
+- Video filters (brightness, contrast, gamma, colours, sharpen, zoom, rotate, mirror) and audio filters (boost, bass, mids, treble, balance, compressor, mono), with named presets and filters remembered per scene
+- Ambient light around the player, loudness levelling, a sleep timer and Stats for nerds with live graphs
+- **Mini player**: leaving the scene page while playing keeps the video going in the corner
+- **Queue**: up next, drag to reorder, randomize the next scene, repeat, previews of the previous and next scene, saved queues and saving a queue as a Stash group
+- Under the player: up next, continue watching, recommendations you can tune, the performers' other scenes, markers, filters and file info
+- **Overview**: rating, plays, Os (latest O and a full Os panel), performers with their Elo, tags, an activity grid of plays and Os, and quick edit of the title, date, studio, performers, tags and details
+- Touch: double tap to seek, swipe for the next or previous scene, swipe for the volume in fullscreen, and the screen turns to the video in fullscreen
+- On wide screens the page fits the window; theater mode lets it scroll
+- Uses the other Vibings plugins when they are installed: Better Os (O positions), Play Tracking Fix (play time and plays), Battles (Elo, and battles against a similar scene from the page) and Scene Heatmap (most watched curve, jump to the most watched part)
+- Settings are stored on the Stash server, so every device shares them
+
+<p>
+  <img src="docs/screenshots/betterscenes-scene.png" alt="Scene page with the player, Overview and recommendations" width="49%">
+  <img src="docs/screenshots/betterscenes-menu.png" alt="Player settings menu and the filters" width="49%">
+</p>
+<p>
+  <img src="docs/screenshots/betterscenes-queue.png" alt="Queue with saved queues, and continue watching" width="49%">
+  <img src="docs/screenshots/betterscenes-battle.png" alt="A battle against a similar scene" width="49%">
+</p>
+<img src="docs/screenshots/betterscenes-mobile.png" alt="Scene page on a phone" width="24%">
 
 ## Repository layout
 

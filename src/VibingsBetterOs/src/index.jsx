@@ -8,7 +8,9 @@
 import { LOG, VERSION } from "./api.js";
 import { loadSettings } from "./settings.js";
 import { injectStyles } from "./styles.js";
-import { installTracker } from "./tracker.js";
+import { installTracker, addSceneO } from "./tracker.js";
+import { useScene, getScene, onScene, loadScene, rows } from "./store.js";
+import { getSettings } from "./settings.js";
 import { startImageSessions } from "./player.js";
 import { startPlayerDecor } from "./decor.js";
 import { OsPanel, OsTabTitle, TAB_KEY } from "./OsPanel.jsx";
@@ -55,6 +57,20 @@ export default function main() {
       </>
     ),
   }]);
+
+  // For other Vibings plugins (such as Vibings Better Scenes): the Os tab,
+  // the per-scene O state and adding an O that stores the player position.
+  window.VibingsBetterOs = {
+    version: VERSION,
+    OsPanel,
+    useScene,
+    getScene,
+    onScene,
+    loadScene,
+    rows,
+    addSceneO,
+    getSettings,
+  };
 
   registerToolsPanel({
     id: "vibings-better-os",

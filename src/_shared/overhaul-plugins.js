@@ -9,7 +9,7 @@ export const OVERHAUL_PLUGINS = [
   { id: "VibingsPlayTrackingFix", name: "Vibings Play Tracking Fix", route: "/settings?tab=tools" },
   { id: "VibingsSceneHeatmap", name: "Vibings Scene Heatmap", route: "/settings?tab=tools" },
   { id: "VibingsHomepage", name: "Vibings Homepage", planned: true },
-  { id: "VibingsBetterScenes", name: "Vibings Better Scenes", planned: true },
+  { id: "VibingsBetterScenes", name: "Vibings Better Scenes", route: "/settings?tab=tools" },
   { id: "VibingsBetterPerformers", name: "Vibings Better Performers", planned: true },
 ];
 

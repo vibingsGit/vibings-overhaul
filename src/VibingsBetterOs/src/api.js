@@ -1,7 +1,7 @@
 // Stash GraphQL + Python backend access, and time formatting.
 
 export const LOG = "[Vibings Better Os]";
-export const VERSION = "1.0.0"; // must match settings.yml (checked by tests)
+export const VERSION = "1.1.0"; // must match settings.yml (checked by tests)
 export const PLUGIN_ID = "VibingsBetterOs";
 
 export async function graphql(query, variables = {}) {

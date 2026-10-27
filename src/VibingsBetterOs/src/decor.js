@@ -6,7 +6,7 @@
 import { fmtPos, fmtDateTime } from "./api.js";
 import { getSettings, onSettings } from "./settings.js";
 import { getScene, onScene, loadScene, setDuration } from "./store.js";
-import { sceneIdFromPath, getPlayer } from "./player.js";
+import { sceneIdFromPath, getVideoJsPlayer } from "./player.js";
 import { addSceneO } from "./tracker.js";
 
 const LAYER = "vbo-marker-layer";
@@ -123,7 +123,7 @@ function sync() {
     lastKey = sceneId;
     lastFlash = Math.max(lastFlash, state.flash?.n || 0);
   }
-  const player = getPlayer();
+  const player = getVideoJsPlayer();
   const pd = Number(player?.duration?.());
   const duration = Number.isFinite(pd) && pd > 0 ? pd : state.duration;
   if (Number.isFinite(pd) && pd > 0) setDuration(sceneId, pd);

@@ -1,0 +1,8 @@
+name: Vibings Better Scenes
+description: A reworked scene page with its own video player, timeline previews,
+  queue, recommendations and the other Vibings plugins built in.
+url: https://github.com/vibingsGit/vibings-overhaul
+version: 1.0.0
+ui:
+  javascript:
+    - VibingsBetterScenes.js

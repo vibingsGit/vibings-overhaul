@@ -118,6 +118,13 @@ const CSS = `
   .vbo-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
   .vbo-edit { display: flex; gap: 4px; }
   .vbo-edit input { width: 6.5em; }
+  /* Narrow places (phones, side panels): the actions go on their own line. */
+  .vbo-panel { container-type: inline-size; }
+  @container (max-width: 520px) {
+    .vbo-row { grid-template-columns: 1.6em minmax(0, 1fr) auto; }
+    .vbo-row-actions { grid-column: 2 / -1; justify-content: flex-start; flex-wrap: wrap; }
+    .vbo-confirm { flex-wrap: wrap; white-space: normal; }
+  }
   @media (max-width: 576px) {
     .vbo-row { grid-template-columns: 1.6em minmax(0, 1fr) auto; }
     .vbo-row-actions { grid-column: 2 / -1; justify-content: flex-start; }
