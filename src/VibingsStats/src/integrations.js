@@ -7,7 +7,14 @@ import { overhaulPluginStates } from "../../_shared/overhaul-plugins.js";
 
 const BATTLE_TOP_CATEGORIES = 3; // categories with the most ranked items
 
+/** Vibings Play Tracking Fix's summary: start date, mode and counts; null when not in use. */
+export async function playTrackingSummary() {
+  const ping = await pluginOperation("VibingsPlayTrackingFix", { operation: "ping" });
+  return { installedAt: ping.installedAt, mode: ping.mode, estimate: ping.estimate, counts: ping.counts, dataBytes: ping.dataBytes };
+}
+
 const ADAPTERS = {
+  VibingsPlayTrackingFix: playTrackingSummary,
   async VibingsBetterOs() {
     const ping = await pluginOperation("VibingsBetterOs", { operation: "ping" });
     return { counts: ping.counts, dataBytes: ping.dataBytes };

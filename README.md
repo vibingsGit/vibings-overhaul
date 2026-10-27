@@ -15,8 +15,9 @@ https://vibingsGit.github.io/vibings-overhaul/main/index.yml
 | Plugin | Type | Status |
 | --- | --- | --- |
 | **Vibings Battles** | UI + Python backend | 2.2.0 |
-| **Vibings Stats** | UI | 2.1.0 |
+| **Vibings Stats** | UI | 2.2.0 |
 | **Vibings Better Os** | UI + Python backend | 1.0.0 |
+| **Vibings Play Tracking Fix** | UI + Python backend | 1.0.0 |
 
 Screenshots use placeholder images and sample names.
 
@@ -50,7 +51,7 @@ A fast statistics page that replaces Stash's own (optional).
 - Views for overview, activity (plays and O over time, weekday × hour heatmaps, streaks), library (resolutions, lengths, codecs, sizes, formats, growth), people (performers, studios, tags, groups), ratings, metadata health and plugins
 - Panels appear as soon as their data is loaded; the rest loads in the background and is cached
 - **Os** view: where in the video the O happens, time left in the video, image viewing time, quickest Os, tags with the most Os and recent Os (positions and viewing times come from Vibings Better Os)
-- Shows statistics from other Vibings plugins, such as Vibings Battles and Vibings Better Os
+- Shows statistics from other Vibings plugins, such as Vibings Battles, Vibings Better Os and Vibings Play Tracking Fix (estimated earlier plays are shown apart from Stash's play count)
 - Version and status checks for Stash and every Vibings plugin
 
 <p>
@@ -79,6 +80,26 @@ Gives every O a moment: the video position of scene Os and the viewing time of i
   <img src="docs/screenshots/betteros-mobile.png" alt="Os tab on a phone" width="24%">
   <img src="docs/screenshots/stats-os-mobile.png" alt="Os statistics on a phone" width="24%">
 </p>
+
+### Vibings Play Tracking Fix
+
+Counts play time and plays from the time the video really plays.
+
+- Works with Stash's own scene player and replaces its play tracking
+- Play time grows only while the video plays: pauses, buffering and skips on the timeline do not count; faster playback counts the video time that went by
+- A play counts once a set share of the video (default 25 %) has played in one viewing; a loop or a replay is a new viewing and can count again
+- Resume points are saved as before; a video watched to the end starts from the beginning next time
+- **Estimated earlier plays**: earlier play time divided by the scene's length estimates how many times a scene was played before the plugin
+  - *Calculate* only shows the result (and a CSV)
+  - *Hybrid* keeps the estimates apart from Stash's play counts (scene History tab, Vibings Stats)
+  - *Replace* writes them into Stash's play history; the original plays are stored and can be put back
+- Database tools: clear resume points Stash never uses, clean the plugin data, automatic backups and restore, all in **Settings → Tools → Vibings Overhaul**
+
+<p>
+  <img src="docs/screenshots/playtracking-estimates.png" alt="Estimated earlier plays in Settings → Tools" width="49%">
+  <img src="docs/screenshots/playtracking-scene.png" alt="Earlier plays on the scene page's History tab" width="49%">
+</p>
+<img src="docs/screenshots/playtracking-settings.png" alt="Vibings Play Tracking Fix settings" width="49%">
 
 ## Repository layout
 

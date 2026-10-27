@@ -1,0 +1,13 @@
+name: Vibings Play Tracking Fix
+description: Counts scene play time and plays from the time the video actually
+  plays. Paused time and skipping on the timeline are not counted. Can estimate
+  play counts from earlier play time.
+url: https://github.com/vibingsGit/vibings-overhaul
+version: 1.0.0
+ui:
+  javascript:
+    - VibingsPlayTrackingFix.js
+exec:
+  - python3
+  - "{pluginDir}/vibings_play_tracking.py"
+interface: raw

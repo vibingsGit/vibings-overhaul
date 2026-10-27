@@ -1,7 +1,7 @@
 name: Vibings Stats
 description: A fast, detailed statistics page for your Stash library.
 url: https://github.com/vibingsGit/vibings-overhaul
-version: 2.1.0
+version: 2.2.0
 ui:
   javascript:
     - VibingsStats.js

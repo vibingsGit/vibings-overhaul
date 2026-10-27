@@ -8,7 +8,7 @@ import {
   daysAgo, lastMonths, sceneActivity, sceneFileStats, performerStats, entityTops, sum,
   RATING_BUCKETS, bucketMean, oStats,
 } from "./aggregate.js";
-import { loadIntegrations } from "./integrations.js";
+import { loadIntegrations, playTrackingSummary } from "./integrations.js";
 import { overhaulPluginStates } from "../../_shared/overhaul-plugins.js";
 
 export const LIBRARY = [
@@ -71,12 +71,23 @@ export function itemName(entity, it) {
 }
 const ref = (entity, it) => (it ? { id: String(it.id), name: itemName(entity, it), created_at: it.created_at, date: it.date } : null);
 
+// Vibings Play Tracking Fix's summary when it is enabled, else null.
+async function playTracking() {
+  try {
+    const states = await overhaulPluginStates(graphql);
+    if (!states.find((p) => p.id === "VibingsPlayTrackingFix")?.enabled) return null;
+    return await playTrackingSummary();
+  } catch {
+    return null;
+  }
+}
+
 export const DATASETS = [
   {
     name: "core",
     label: "Library totals",
     async load() {
-      const [{ stats }, counts] = await Promise.all([
+      const [{ stats }, counts, tracking] = await Promise.all([
         graphql(`query VibingsStatsCore { stats { scene_count scenes_size scenes_duration image_count images_size gallery_count
           performer_count studio_count group_count tag_count total_o_count total_play_duration total_play_count scenes_played } }`),
         countMany({
@@ -92,8 +103,9 @@ export const DATASETS = [
           scenesWithO: ["scenes", { o_counter: { value: 0, modifier: "GREATER_THAN" } }],
           imagesWithO: ["images", { o_counter: { value: 0, modifier: "GREATER_THAN" } }],
         }),
+        playTracking(),
       ]);
-      return { stats, counts };
+      return { stats, counts, tracking };
     },
   },
   {

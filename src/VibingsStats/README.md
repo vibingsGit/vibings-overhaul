@@ -13,7 +13,7 @@ Source for the Vibings Stats plugin, a UI-only plugin that replaces Stash's Stat
 | `src/store.js` | Dataset loader: per-dataset loading, cache, background prefetch |
 | `src/aggregate.js` | Pure aggregation helpers (unit tested) |
 | `src/api.js` | `VERSION`, GraphQL, batched counts, paginated lists, plugin settings |
-| `src/integrations.js` | Statistics from other Vibings plugins (Vibings Battles, Vibings Better Os) |
+| `src/integrations.js` | Statistics from other Vibings plugins (Vibings Battles, Vibings Better Os, Vibings Play Tracking Fix) |
 | `src/status.js` | Status checks for this plugin, Stash and every Vibings plugin |
 | `src/ui.jsx` | Panels, cards and the CSS-only bar, column, split and heatmap charts |
 | `src/styles.js` | All CSS, themable through `--vibings-stats-*` variables |
@@ -37,7 +37,7 @@ npm run build      # tests + minified build into ../../plugins
 
 **Cache.** Results are kept in memory and in `localStorage` (aggregates only, tens of KB). A return visit shows them at once; when older than *Cache minutes* (default 15) they refresh in the background while the old numbers stay visible. The Status view lists every dataset with its load time and lets you reload one, refresh all or clear the cache.
 
-**Plugins.** `src/integrations.js` reads statistics from other Vibings plugins when they are installed and enabled. Vibings Battles: totals, ranked items per category, the top items by Elo and recent battles, through its backend operations. Vibings Better Os: its counts, and in the Os view every stored video position and image viewing time (`get_all`), matched against Stash's o_history so only Os that still exist count. Plugins that are not released yet are listed with their state.
+**Plugins.** `src/integrations.js` reads statistics from other Vibings plugins when they are installed and enabled. Vibings Battles: totals, ranked items per category, the top items by Elo and recent battles, through its backend operations. Vibings Better Os: its counts, and in the Os view every stored video position and image viewing time (`get_all`), matched against Stash's o_history so only Os that still exist count. Vibings Play Tracking Fix: its start date, the play time and plays it counted and its estimate mode; the Overview's Watching panel shows the estimated earlier plays (hybrid) apart from Stash's play count. Plugins that are not released yet are listed with their state.
 
 ## Version and status
 

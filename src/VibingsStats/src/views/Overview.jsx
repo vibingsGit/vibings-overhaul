@@ -23,10 +23,13 @@ export function Overview() {
 
       <div className="vs-grid">
         <Panel title="Watching" dataset="core" span={4}>
-          {({ stats: s, counts: c }) => (
+          {({ stats: s, counts: c, tracking: t }) => (
             <KeyValues rows={[
               ["Plays", fmtNumber(s.total_play_count)],
+              ...(t?.mode === "hybrid" ? [["Earlier plays (estimated)", fmtNumber(t.counts.estimatedPlays)]] : []),
+              ...(t?.mode === "replace" ? [["Earlier plays", `estimated on ${fmtNumber(t.counts.replacedScenes)} scenes`]] : []),
               ["Time watched", fmtDuration(s.total_play_duration)],
+              ...(t ? [[`Tracked since ${new Date(t.installedAt).toLocaleDateString()}`, `${fmtNumber(t.counts.plays)} ${t.counts.plays === 1 ? "play" : "plays"} · ${fmtDuration(t.counts.seconds)}`]] : []),
               ["Scenes played", `${fmtNumber(s.scenes_played)} (${fmtPct(s.scenes_played, s.scene_count)})`],
               ["Never played", fmtNumber(s.scene_count - s.scenes_played)],
               ["O count", fmtNumber(s.total_o_count)],

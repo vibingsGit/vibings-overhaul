@@ -1,7 +1,7 @@
 // Plugins: every Vibings Overhaul plugin, and the statistics of those that
-// keep their own data (currently Vibings Battles).
+// keep their own data.
 
-import { Panel, KeyValues, Bars, fmtNumber, timeAgo } from "../ui.jsx";
+import { Panel, KeyValues, Bars, fmtNumber, fmtDuration, timeAgo } from "../ui.jsx";
 import { useDataset } from "../store.js";
 
 const PluginApi = window.PluginApi;
@@ -89,7 +89,36 @@ function BetterOsStats({ stats }) {
   );
 }
 
-const STATS_COMPONENTS = { VibingsBattles: BattlesStats, VibingsBetterOs: BetterOsStats };
+const MODE_LABELS = {
+  hybrid: "Hybrid: estimated earlier plays are shown apart from Stash's play counts",
+  replace: "Replace: earlier play counts in Stash are estimates (can be undone)",
+};
+
+function PlayTrackingStats({ stats }) {
+  const c = stats.counts;
+  return (
+    <div className="vs-grid" style={{ marginBottom: 0 }}>
+      <div className="vs-span-6">
+        <KeyValues rows={[
+          ["Tracking since", new Date(stats.installedAt).toLocaleString()],
+          ["Play time counted", `${fmtDuration(c.seconds)} on ${fmtNumber(c.scenes)} ${c.scenes === 1 ? "scene" : "scenes"}`],
+          ["Plays counted", fmtNumber(c.plays)],
+          ["Data file", `${(stats.dataBytes / 1024).toFixed(1)} KB`],
+        ]} />
+      </div>
+      <div className="vs-span-6">
+        <KeyValues rows={[
+          ["Estimated earlier plays", stats.mode === "hybrid" ? `${fmtNumber(c.estimatedPlays)} on ${fmtNumber(c.estimatedScenes)} ${c.estimatedScenes === 1 ? "scene" : "scenes"}` : "–"],
+          ["Replaced play counts", stats.mode === "replace" ? `${fmtNumber(c.replacedScenes)} scenes` : "–"],
+          ["Estimate mode", stats.mode ? MODE_LABELS[stats.mode] : "None (calculate in Settings → Tools)"],
+          ["Calculated", stats.estimate?.at ? timeAgo(stats.estimate.at) : "–"],
+        ]} />
+      </div>
+    </div>
+  );
+}
+
+const STATS_COMPONENTS = { VibingsBattles: BattlesStats, VibingsBetterOs: BetterOsStats, VibingsPlayTrackingFix: PlayTrackingStats };
 
 export function Plugins() {
   const ds = useDataset("plugins");
