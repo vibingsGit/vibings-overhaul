@@ -14,7 +14,7 @@ https://vibingsGit.github.io/vibings-overhaul/main/index.yml
 
 | Plugin | Type | Status |
 | --- | --- | --- |
-| **Vibings Battles** | UI + Python backend | In development |
+| **Vibings Battles** | UI + Python backend | 2.0.0 |
 
 ### Vibings Battles
 
