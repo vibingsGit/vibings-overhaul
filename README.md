@@ -15,6 +15,7 @@ https://vibingsGit.github.io/vibings-overhaul/main/index.yml
 | Plugin | Type | Status |
 | --- | --- | --- |
 | **Vibings Battles** | UI + Python backend | 2.2.0 |
+| **Vibings Stats** | UI | 2.0.0 (in development) |
 
 ### Vibings Battles
 
@@ -33,12 +34,21 @@ Head-to-head battles that build an Elo ranking for scenes, images, performers, s
 - Settings and status checks also in Stash's **Settings → Tools → Vibings Overhaul**
 - Battle log stored on the Stash server, shared across devices
 
+### Vibings Stats
+
+A fast statistics page that replaces Stash's own (optional).
+
+- Views for overview, activity (plays and O over time, weekday × hour heatmaps, streaks), library (resolutions, lengths, codecs, sizes, formats, growth), people (performers, studios, tags, groups), ratings, metadata health and plugins
+- Panels appear as soon as their data is loaded; the rest loads in the background and is cached
+- Shows statistics from other Vibings plugins, such as Vibings Battles
+- Version and status checks for Stash and every Vibings plugin
+
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
 | `src/<Plugin>/` | Plugin source (stash-plugin-builder projects) |
-| `src/_shared/` | Code bundled into several plugins, e.g. the shared Settings → Tools section |
+| `src/_shared/` | Code bundled into several plugins: the shared Settings → Tools section and the Vibings plugin list |
 | `plugins/<Plugin>/` | Built plugins; pushing changes here publishes them |
 | `build_site.sh` | Builds the plugin source index for GitHub Pages |
 

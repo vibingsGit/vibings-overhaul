@@ -1,0 +1,16 @@
+id: VibingsStats
+name: Vibings Stats
+description: A fast, detailed statistics page for your Stash library.
+url: https://github.com/vibingsGit/vibings-overhaul
+version: 2.0.0
+ui:
+  javascript: ./src/index.jsx
+settings:
+  keepNativeStatsPage:
+    displayName: Keep Stash's own Statistics page
+    description: Off (default) opens Vibings Stats instead of Stash's Statistics page. Vibings Stats is always at /vibings-stats.
+    type: BOOLEAN
+  cacheMinutes:
+    displayName: Cache minutes
+    description: How long loaded statistics are reused before they are refreshed in the background (default 15, 0 = always refresh).
+    type: NUMBER
